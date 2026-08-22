@@ -123,6 +123,52 @@ class TestTCDetector:
         assert tc.status == "post_liminal"
         assert tc.irreversible
 
+    def test_liminal_to_post_liminal_requires_streak(self):
+        # docstring 规则：进入 liminal 后需连续 3 次 L3+ 正确才 post_liminal
+        det = TCStateDetector()
+        tc = None
+        for _ in range(3):
+            tc = det.detect("python.variables", correct=True,
+                            bloom_level=BloomLevel.APPLY, current_tc_state=tc,
+                            has_active_misc=False)
+        assert tc.status == "liminal"
+        # 仅 2 次连续 L3+ 正确：progress 到 1.0 但仍不算跨过
+        for _ in range(2):
+            tc = det.detect("python.variables", correct=True,
+                            bloom_level=BloomLevel.APPLY, current_tc_state=tc,
+                            has_active_misc=False)
+        assert tc.status == "liminal"
+        assert tc.progress == pytest.approx(1.0)
+        # 第 3 次连续 L3+ 正确 -> post_liminal
+        tc = det.detect("python.variables", correct=True,
+                        bloom_level=BloomLevel.APPLY, current_tc_state=tc,
+                        has_active_misc=False)
+        assert tc.status == "post_liminal"
+        assert tc.irreversible
+
+    def test_wrong_answer_in_liminal_resets_streak(self):
+        # 答错清零连续 L3+ 计数，需重新累积 3 次
+        det = TCStateDetector()
+        tc = None
+        for _ in range(3):
+            tc = det.detect("python.variables", correct=True,
+                            bloom_level=BloomLevel.APPLY, current_tc_state=tc,
+                            has_active_misc=False)
+        assert tc.status == "liminal"
+        for _ in range(2):
+            tc = det.detect("python.variables", correct=True,
+                            bloom_level=BloomLevel.APPLY, current_tc_state=tc,
+                            has_active_misc=False)
+        tc = det.detect("python.variables", correct=False,
+                        bloom_level=BloomLevel.APPLY, current_tc_state=tc,
+                        has_active_misc=False)
+        assert tc.status == "liminal"
+        for _ in range(3):
+            tc = det.detect("python.variables", correct=True,
+                            bloom_level=BloomLevel.APPLY, current_tc_state=tc,
+                            has_active_misc=False)
+        assert tc.status == "post_liminal"
+
     def test_post_liminal_irreversible(self):
         det = TCStateDetector()
         done = TCState(tc_id="python.loops", status="post_liminal",

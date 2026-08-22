@@ -122,16 +122,19 @@ class TCStateDetector:
 
         elif status == "liminal":
             if correct and is_l3_plus:
-                # 连续 L3+ 正确 -> 累加 progress
+                # 连续 L3+ 正确：累加 progress 与 crossing streak（写回，跨调用累积）
                 progress = min(1.0, progress + 0.25)
-                # 检查达到 post_liminal
-                streak = current_tc_state.liminal_signals.count("post_liminal_candidate")
-                if progress >= 1.0 or streak >= self.post_liminal_streak:
+                signals.append("post_liminal_candidate")
+                current_tc_state.liminal_signals = signals
+                # 持续 post_liminal_streak 次 L3+ 正确 -> post_liminal（docstring 规则）
+                if signals.count("post_liminal_candidate") >= self.post_liminal_streak:
                     status = "post_liminal"
                     current_tc_state.post_liminal_jump_detected = True
                     current_tc_state.irreversible = True
             elif not correct:
-                # 答错减少 progress，但不离 liminal
+                # 答错：重置连续 L3+ 计数，progress 回落（不退出 liminal）
+                signals = [s for s in signals if s != "post_liminal_candidate"]
+                current_tc_state.liminal_signals = signals
                 progress = max(threshold * 0.8, progress - 0.15)
 
         current_tc_state.status = status
