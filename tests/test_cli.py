@@ -111,3 +111,53 @@ def test_tc_display_name_uses_state_machine_library():
     assert cli._tc_display_name(engine, "python.loops") == "循环是受控的重复"
     assert cli._tc_display_name(engine, "python.scope") == "作用域是名字的查找规则"
     assert cli._tc_display_name(engine, "不存在的topic") == "不存在的topic"
+
+
+def test_all_illusory_hits_listed_and_count_matches(monkeypatch, tmp_path):
+    # 回归（自测弱学习者）：C 维度说"发现 N 处失准"但列表只显示 5 处（[-5:] 截断）。
+    # 6 题全部自评 100 + 答错 -> 6 处命中应全部列出，首尾都在。
+    answers = []
+    # 每题先自评 100，再给错误答案
+    answers += ["100\n", "0\n"]   # pv-l1-01 choice 错
+    answers += ["100\n", "0\n"]   # pv-l2-01 choice 错
+    answers += ["100\n", "wrong\n"]  # pv-l2-02 fill 错
+    answers += ["100\n", "END\n"]    # pv-l3-01 code 空
+    answers += ["100\n", "0\n"]   # pv-l4-01 choice 错
+    answers += ["100\n", "wrong\n"]  # pl-l1-01 fill 错
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=answers,
+        args=["--questions", "6"],
+    )
+    assert "发现 6 处失准" in out
+    assert "题 pv-l1-01" in out
+    assert "题 pv-l4-01" in out
+    assert "题 pl-l1-01" in out
+
+
+def test_topic_label_chinese_in_suggestion(monkeypatch, tmp_path):
+    # 回归：一句话建议露出原始英文 id（如 python.recursion）新手看不懂
+    # 前 5 题全属 python.variables 且全错 -> BKT 最弱是 variables -> 建议该 topic
+    # （Q4 是代码题，需要 END 结束符）
+    answers = [
+        "80\n", "0\n",     # pv-l1-01 choice 错
+        "80\n", "0\n",     # pv-l2-01 choice 错
+        "80\n", "wrong\n",  # pv-l2-02 fill 错
+        "80\n", "END\n",    # pv-l3-01 code 空
+        "80\n", "0\n",     # pv-l4-01 choice 错
+    ]
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=answers,
+        args=["--questions", "5"],
+    )
+    suggest_lines = [l for l in out.splitlines() if "目前掌握概率" in l or "建议接下来" in l]
+    assert suggest_lines, "未找到建议行"
+    assert "变量赋值" in suggest_lines[0], f"建议应为中文 topic 名: {suggest_lines[0]}"
+    assert "python." not in suggest_lines[0], "建议行不应出现原始 skill id"
+
+
+def test_topic_label_unit():
+    assert cli._topic_label("python.recursion") == "递归"
+    assert cli._topic_label("python.variables") == "变量赋值"
+    assert cli._topic_label("unknown.topic") == "unknown.topic"

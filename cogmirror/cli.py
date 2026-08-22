@@ -31,6 +31,21 @@ BLOOM_LABELS = [
     ("create", "L6 创造"),
 ]
 
+# topic 中文短名（一句话建议用）。题库 5 个 topic 静态不变，与
+# content/threshold_concepts.py / tc.DEFAULT_TC_LIBRARY 的 key 对应。
+TOPIC_LABELS = {
+    "python.variables": "变量赋值",
+    "python.loops": "循环",
+    "python.functions": "函数",
+    "python.recursion": "递归",
+    "python.scope": "作用域",
+}
+
+
+def _topic_label(skill_id: str) -> str:
+    """topic 中文短名（建议文案用），未知 id 原样返回."""
+    return TOPIC_LABELS.get(skill_id, skill_id)
+
 
 def _bar(value: float, width: int = 20) -> str:
     filled = int(round(value * width))
@@ -145,11 +160,16 @@ def print_map(engine: BeliefEngine, state: BeliefState,
             print(f"  {label}  （暂无对应层级题目，暂未测量）")
             continue
         print(f"  {label}  {_bar(getattr(state.bloom_profile, field))}")
-    print(f"  当前主导层级: {state.bloom_profile.dominant_layer.name}")
+    if state.bloom_profile.covered_layers:
+        print(f"  当前主导层级: {state.bloom_profile.dominant_layer.name}")
+    else:
+        print("  当前主导层级: 暂未测量（尚无作答数据）")
 
     if state.C.illusory_confidence_hits:
         print("\n[伪自信点] 自评很高但实际表现不佳的题：")
-        for h in state.C.illusory_confidence_hits[-5:]:
+        # 全量列出（与上方 C 维度的命中数一致）；伪自信命中需要自评 ≥0.7
+        # 且落差 ≥0.5，正常学习路径里不会多到刷屏
+        for h in state.C.illusory_confidence_hits:
             print(f"  题 {h.problem_id}: 自评 {h.self_confidence:.0%}，"
                   f"实际得分 {h.score:.0%}（落差 {h.gap:.0%}）")
         print("  这些地方『感觉会』可能掩盖了『其实还没会』，建议重做并讲出理由。")
@@ -174,13 +194,13 @@ def next_suggestion(engine: BeliefEngine, state: BeliefState) -> str:
     liminal = [tid for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
     if liminal:
         tid = liminal[0]
-        return f"建议接下来做 3 道「{tid.split('.')[1]}」的应用题（L3），不建议现在学新概念。"
+        return f"建议接下来做 3 道「{_topic_label(tid)}」的应用题（L3），不建议现在学新概念。"
     # 其次：练过的 topic 里 BKT 最弱的
     practiced = engine.l1.all_skills()
     if practiced:
         weakest = min(practiced, key=lambda s: engine.get_bkt_mastery(s))
         if engine.get_bkt_mastery(weakest) < 0.7:
-            return f"「{weakest}」目前掌握概率 {engine.get_bkt_mastery(weakest):.0%}，建议再做几道对应的基础题巩固。"
+            return f"「{_topic_label(weakest)}」目前掌握概率 {engine.get_bkt_mastery(weakest):.0%}，建议再做几道对应的基础题巩固。"
         return "已练概念掌握良好，下次可以开启新 topic（比如还没练过的那个）。"
     return "先完成一组题，系统才能给出有依据的建议。"
 

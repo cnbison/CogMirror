@@ -77,6 +77,7 @@ class BloomProfileState:
     create: float = 0.5
     dominant_layer: BloomLevel = BloomLevel.UNDERSTAND
     confidence: float = 0.0
+    covered_layers: set[BloomLevel] = field(default_factory=set)
 
     def as_vector(self) -> np.ndarray:
         """返回 6 维向量 [L1..L6] 顺序."""
@@ -92,14 +93,21 @@ class BloomProfileState:
     def update_dominant(self) -> None:
         """根据 6 层概率重新判定 dominant_layer.
 
+        只从 covered_layers（有题目/观测的层）里选：无覆盖的层停在先验 0.5，
+        若纳入候选，全挂的学习者会被判成"主导 L5/L6"（自测发现，2026-08-22）。
         并列（多层同概率）时取最高层——ECOS 曾因 argmax 取最低层导致
         成长被低估（v0.96.4 修复），此处继承修复后的行为。
         全部 ≤ 0.5（无信号）时取最低层，避免全新画像跳到 L6。
         """
         probs = self.as_vector()
-        max_val = float(probs.max())
-        max_idxs = np.flatnonzero(probs == max_val)
-        idx = int(max_idxs.max() if max_val > 0.5 else max_idxs.min())
+        covered_idx = sorted({layer.value - 1 for layer in self.covered_layers})
+        if not covered_idx:
+            self.dominant_layer = BloomLevel.REMEMBER
+            return
+        covered_probs = probs[covered_idx]
+        max_val = float(covered_probs.max())
+        max_positions = [i for i in covered_idx if probs[i] == max_val]
+        idx = max(max_positions) if max_val > 0.5 else min(max_positions)
         self.dominant_layer = BloomLevel(idx + 1)
 
     def __post_init__(self) -> None:
@@ -468,6 +476,7 @@ def _bloom_to_dict(b: BloomProfileState) -> Dict[str, Any]:
         "create": float(b.create),
         "dominant_layer": b.dominant_layer.name,
         "confidence": float(b.confidence),
+        "covered_layers": [l.name for l in sorted(b.covered_layers, key=lambda l: l.value)],
     }
 
 
@@ -476,6 +485,12 @@ def _bloom_from_dict(d: Dict[str, Any]) -> BloomProfileState:
         dominant = BloomLevel[d.get("dominant_layer", "UNDERSTAND")]
     except KeyError:
         dominant = BloomLevel.UNDERSTAND
+    covered = set()
+    for name in d.get("covered_layers", []):
+        try:
+            covered.add(BloomLevel[name])
+        except KeyError:
+            continue
     return BloomProfileState(
         remember=float(d.get("remember", 0.5)),
         understand=float(d.get("understand", 0.5)),
@@ -485,6 +500,7 @@ def _bloom_from_dict(d: Dict[str, Any]) -> BloomProfileState:
         create=float(d.get("create", 0.5)),
         dominant_layer=dominant,
         confidence=float(d.get("confidence", 0.0)),
+        covered_layers=covered,
     )
 
 

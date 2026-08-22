@@ -44,6 +44,9 @@ class TestBeliefState:
         assert np.allclose(restored.theta_mean, state.theta_mean)
         assert restored.bloom_profile.apply == pytest.approx(state.bloom_profile.apply)
         assert restored.C.tc_states["python.loops"].status == state.C.tc_states["python.loops"].status
+        # covered_layers 必须随序列化往返，否则恢复后主导层级会被重置
+        assert restored.bloom_profile.covered_layers == state.bloom_profile.covered_layers
+        assert restored.bloom_profile.dominant_layer == state.bloom_profile.dominant_layer
         ok, issues = restored.validate()
         assert ok, issues
 
@@ -51,11 +54,26 @@ class TestBeliefState:
         state = BeliefState(user_id="u1")
         state.bloom_profile.remember = 0.9
         state.bloom_profile.apply = 0.9
+        state.bloom_profile.covered_layers = {BloomLevel.REMEMBER, BloomLevel.APPLY}
         state.bloom_profile.update_dominant()
         assert state.bloom_profile.dominant_layer == BloomLevel.APPLY
 
     def test_bloom_dominant_all_neutral_takes_lowest(self):
         state = BeliefState(user_id="u1")
+        state.bloom_profile.update_dominant()
+        assert state.bloom_profile.dominant_layer == BloomLevel.REMEMBER
+
+    def test_bloom_dominant_ignores_uncovered_high_prior(self):
+        # 回归：弱学习者全挂时 L5/L6 停先验 0.5，不能被判成"主导 EVALUATE"
+        state = BeliefState(user_id="u1")
+        state.bloom_profile.apply = 0.38
+        state.bloom_profile.analyze = 0.38
+        state.bloom_profile.remember = 0.38
+        state.bloom_profile.understand = 0.38
+        # evaluate/create 未练，停在先验 0.5——不应参与竞争
+        state.bloom_profile.covered_layers = {
+            BloomLevel.REMEMBER, BloomLevel.UNDERSTAND, BloomLevel.APPLY, BloomLevel.ANALYZE,
+        }
         state.bloom_profile.update_dominant()
         assert state.bloom_profile.dominant_layer == BloomLevel.REMEMBER
 
@@ -127,6 +145,19 @@ class TestBeliefEngineUpdate:
         for i in range(50):
             state = engine.update(state, make_obs(f"q{i}", "python.loops", 1.0, bloom=BloomLevel.APPLY))
         assert 0.0 <= state.bloom_profile.apply <= 1.0
+
+    def test_weak_learner_dominant_not_unpracticed_layer(self):
+        # 回归（自测弱学习者场景）：只练了 L1-L4 且全错，
+        # 主导层级不能跳到未练的 L5/L6（它们停先验 0.5 会反超）
+        engine = BeliefEngine()
+        state = engine.create_initial_state("u1")
+        for level in (BloomLevel.REMEMBER, BloomLevel.UNDERSTAND,
+                      BloomLevel.APPLY, BloomLevel.ANALYZE):
+            for i in range(3):
+                state = engine.update(
+                    state, make_obs(f"q-{level.name}-{i}", "python.loops", 0.0, bloom=level))
+        assert state.bloom_profile.dominant_layer.value <= BloomLevel.ANALYZE.value
+        assert state.bloom_profile.dominant_layer != BloomLevel.EVALUATE
 
     def test_illusory_confidence_detected(self):
         engine = BeliefEngine()

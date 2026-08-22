@@ -193,6 +193,9 @@ class BeliefEngine:
         bloom_delta = (score - 0.5) * 2.0 * self.config.bloom_update_step
         new_prob = max(0.0, min(1.0, current_prob + bloom_delta))
         setattr(state.bloom_profile, bloom_name, new_prob)
+        # 记录该层有观测：主导层级只从有数据的层里选，避免未练层停
+        # 先验 0.5 却压过练过但失败的层（自测发现，2026-08-22）
+        state.bloom_profile.covered_layers.add(observation.bloom_level)
         state.bloom_profile.update_dominant()
         state.bloom_profile.confidence = min(1.0, len(history) / 30.0)
 
