@@ -146,6 +146,33 @@ class TestBeliefEngineUpdate:
             state = engine.update(state, make_obs(f"q{i}", "python.loops", 1.0, bloom=BloomLevel.APPLY))
         assert 0.0 <= state.bloom_profile.apply <= 1.0
 
+    def test_tc_lifecycle_via_engine_update(self):
+        # 双指标交叉印证（规则2）：TC 三态机在真实引擎路径下按连续 3 次 L3+
+        # 正确推进，答错重置连续计数。detector 层单测之外的第二条证据线。
+        engine = BeliefEngine()
+        state = engine.create_initial_state("u1")
+        for i in range(3):  # 3 次 L3+ 正确 -> liminal
+            state = engine.update(
+                state, make_obs(f"q{i}", "python.loops", 1.0, bloom=BloomLevel.APPLY))
+        tc = state.C.tc_states["python.loops"]
+        assert tc.status == "liminal"
+        for i in range(2):  # 2 次连续 L3+ 正确，未满 3 次不算跨过
+            state = engine.update(
+                state, make_obs(f"q{i+10}", "python.loops", 1.0, bloom=BloomLevel.APPLY))
+        tc = state.C.tc_states["python.loops"]
+        assert tc.status == "liminal"
+        state = engine.update(  # 答错：重置连续计数，不退回 pre_liminal
+            state, make_obs("q-x", "python.loops", 0.0, bloom=BloomLevel.APPLY))
+        tc = state.C.tc_states["python.loops"]
+        assert tc.status == "liminal"
+        assert "post_liminal_candidate" not in tc.liminal_signals
+        for i in range(3):  # 重新累计 3 次连续 L3+ 正确 -> post_liminal
+            state = engine.update(
+                state, make_obs(f"q{i+20}", "python.loops", 1.0, bloom=BloomLevel.APPLY))
+        tc = state.C.tc_states["python.loops"]
+        assert tc.status == "post_liminal"
+        assert tc.irreversible
+
     def test_weak_learner_dominant_not_unpracticed_layer(self):
         # 回归（自测弱学习者场景）：只练了 L1-L4 且全错，
         # 主导层级不能跳到未练的 L5/L6（它们停先验 0.5 会反超）
