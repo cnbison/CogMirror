@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cogmirror"
+version = "0.1.0"
+description = "编程学习认知教练——帮成年自学者看清自己真实认知状态的工具"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+cogmirror = "cogmirror.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cogmirror"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
