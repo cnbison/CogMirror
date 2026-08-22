@@ -11,7 +11,6 @@ import sys
 
 from .belief_engine import BeliefEngine, Observation
 from .belief_state import BeliefState, BloomLevel
-from .content import PythonThresholdConceptLibrary
 from .db import Database, DEFAULT_DB_PATH
 from .questions import QuestionBank
 
@@ -32,12 +31,15 @@ BLOOM_LABELS = [
     ("create", "L6 创造"),
 ]
 
-TC_LIB = PythonThresholdConceptLibrary()
-
 
 def _bar(value: float, width: int = 20) -> str:
     filled = int(round(value * width))
     return "█" * filled + "░" * (width - filled) + f" {value:.2f}"
+
+
+def _tc_display_name(engine: BeliefEngine, tid: str) -> str:
+    """TC 显示名单一来源：状态机库（避免第二套库文案漂移）."""
+    return engine.tc_detector.tc_library.get(tid, {}).get("name", tid)
 
 
 def ask_self_confidence() -> float | None:
@@ -107,7 +109,8 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
     return state
 
 
-def print_map(engine: BeliefEngine, state: BeliefState) -> None:
+def print_map(engine: BeliefEngine, state: BeliefState,
+              covered_bloom: set[BloomLevel] | None = None) -> None:
     print("\n" + "═" * 56)
     print("你的认知地图")
     print("═" * 56)
@@ -115,10 +118,18 @@ def print_map(engine: BeliefEngine, state: BeliefState) -> None:
     print("\n[5 维状态]（掌握概率）")
     for dim, label in DIM_LABELS.items():
         d = getattr(state, dim)
+        if dim == "X":
+            # MVP 无支架/提示机制，X 无观测来源，诚实标注而不是给一个先验假数值
+            print(f"  {dim} {label:<16} （MVP 未提供支架/提示机制，暂未测量）")
+            continue
         print(f"  {dim} {label:<16} {_bar(d.mastery_prob)}")
 
+    covered_bloom = covered_bloom or set(BloomLevel)
     print("\n[Bloom 六层分布]")
     for field, label in BLOOM_LABELS:
+        if BloomLevel[field.upper()] not in covered_bloom:
+            print(f"  {label}  （暂无对应层级题目，暂未测量）")
+            continue
         print(f"  {label}  {_bar(getattr(state.bloom_profile, field))}")
     print(f"  当前主导层级: {state.bloom_profile.dominant_layer.name}")
 
@@ -135,9 +146,7 @@ def print_map(engine: BeliefEngine, state: BeliefState) -> None:
     if liminal:
         print("\n[临界概念] 正在跨越中（这不是退步，是学习的正常中间态）：")
         for tid, tc in liminal:
-            entry = TC_LIB.get(f"TC_python_{tid.split('.')[1]}")
-            name = entry.name if entry else tid
-            print(f"  {name}（跨越进度 {tc.progress:.0%}）")
+            print(f"  {_tc_display_name(engine, tid)}（跨越进度 {tc.progress:.0%}）")
     else:
         print("\n[临界概念] 当前无正在跨越中的概念")
 
@@ -193,7 +202,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.map_only:
         state = run_session(engine, bank, state, db, args.questions)
 
-    print_map(engine, state)
+    covered_bloom = {q.bloom_level for q in bank.all_questions()}
+    print_map(engine, state, covered_bloom)
     db.close()
     return 0
 

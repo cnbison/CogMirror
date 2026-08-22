@@ -37,6 +37,8 @@ from .tc import TCStateDetector
 # 伪自信判定阈值：自评置信度 - 实际得分 >= 该值且自评较高时记为伪自信
 ILLUSORY_GAP_THRESHOLD = 0.5
 ILLUSORY_SELF_CONF_MIN = 0.7
+# 每次伪自信命中对 C 维度掌握概率的折扣：自评与表现脱节 -> C 下调
+ILLUSORY_MASTERY_DISCOUNT = 0.15
 
 HISTORY_MAXLEN = 100
 
@@ -198,8 +200,6 @@ class BeliefEngine:
             state.C.misconception_hits.append(misc_hit)
             discount = 1.0 - min(misc_hit.confidence * 0.3, 0.3)
             state.C.discount_factor = min(state.C.discount_factor * discount, 1.0)
-            state.C.mastery_prob = state.C.mastery_prob * state.C.discount_factor
-            state.C.mastered = state.C.mastery_prob >= 0.5
 
         # Step 6: TC 状态检测
         updated_tc = self.tc_detector.detect(
@@ -223,6 +223,16 @@ class BeliefEngine:
                     timestamp=observation.timestamp,
                 ))
                 state.C.illusory_confidence_flag = True
+                # C 维度反馈：伪自信命中 = 自评与表现脱节，累计进持久折扣因子
+                state.C.discount_factor = min(
+                    state.C.discount_factor * (1.0 - ILLUSORY_MASTERY_DISCOUNT), 1.0)
+
+        # C 维度掌握概率 = sigmoid(theta_C) × discount_factor（伪自信/misconception
+        # 校准信号持久化）。必须在每次更新末尾重算：Step 3 的 MIRT 会整体重算
+        # mastery_prob，若只在命中时直接改会被下一次 MIRT 覆盖。
+        state.C.mastery_prob = float(np.clip(
+            (1.0 / (1.0 + np.exp(-state.C.theta))) * state.C.discount_factor, 0.0, 1.0))
+        state.C.mastered = state.C.mastery_prob >= 0.5
 
         # Step 8: overall_confidence + 轨迹快照
         state.overall_confidence = float(np.mean([

@@ -58,3 +58,34 @@ def test_illusory_confidence_shown_in_map(monkeypatch, tmp_path):
     )
     assert "伪自信点" in out
     assert "pv-l1-01" in out
+
+
+def test_x_dimension_annotated_unmeasured(monkeypatch, tmp_path):
+    # X 维度 MVP 无支架/提示机制，应诚实标注而非显示先验假数值
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n", "90\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    assert "外部支架" in out
+    assert "暂未测量" in out
+
+
+def test_bloom_l56_annotated(monkeypatch, tmp_path):
+    # 题库最高只到 L4，L5/L6 无对应题目 -> 标注而非显示永远不变的 0.50
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n", "90\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    assert "L5 评价" in out
+    assert "L6 创造" in out
+    assert "暂无对应层级题目" in out
+
+
+def test_tc_display_name_uses_state_machine_library():
+    # TC 显示名唯一来源 = 状态机库，避免 content 库文案漂移
+    engine = cli.BeliefEngine()
+    assert cli._tc_display_name(engine, "python.loops") == "循环是受控的重复"
+    assert cli._tc_display_name(engine, "python.scope") == "作用域是名字的查找规则"
+    assert cli._tc_display_name(engine, "不存在的topic") == "不存在的topic"

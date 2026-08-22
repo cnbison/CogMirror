@@ -19,15 +19,17 @@ import numpy as np
 from .belief_state import BloomLevel, TCState
 
 
-# TC 定义（每 topic 一个 TC）--Python 学科 5 条，来自 ECOS 已验证内容
+# TC 定义（每 topic 一个 TC）--Python 学科 5 条，来自 ECOS 已验证内容。
+# name 字段为 CLI 唯一显示来源（见 cli._tc_display_name），需与
+# content/threshold_concepts.py 的 name 保持同步，避免两库文案漂移。
 DEFAULT_TC_LIBRARY: Dict[str, dict] = {
     "python.variables": {
-        "name": "变量是引用而非赋值",
+        "name": "变量是标签而非盒子",
         "liminal_signal": "理解 x = x + 1 的语义",
         "threshold": 0.7,
     },
     "python.loops": {
-        "name": "循环是重复执行",
+        "name": "循环是受控的重复",
         "liminal_signal": "能用循环解决实际问题",
         "threshold": 0.7,
     },
@@ -37,12 +39,12 @@ DEFAULT_TC_LIBRARY: Dict[str, dict] = {
         "threshold": 0.7,
     },
     "python.recursion": {
-        "name": "递归是函数自调用分解",
+        "name": "递归是化归",
         "liminal_signal": "理解 base case 的必要性",
         "threshold": 0.7,
     },
     "python.scope": {
-        "name": "局部/全局作用域隔离",
+        "name": "作用域是名字的查找规则",
         "liminal_signal": "理解 global 关键字",
         "threshold": 0.7,
     },

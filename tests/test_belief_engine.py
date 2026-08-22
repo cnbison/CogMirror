@@ -138,6 +138,16 @@ class TestBeliefEngineUpdate:
         state = engine.update(state, make_obs("q2", "python.variables", 0.1, self_confidence=0.3))
         assert not state.C.illusory_confidence_flag
 
+    def test_illusory_hit_discounts_c_mastery(self):
+        engine = BeliefEngine()
+        state = engine.create_initial_state("u1")
+        before = state.C.mastery_prob
+        state = engine.update(state, make_obs("q1", "python.variables", 0.1, self_confidence=0.95))
+        assert state.C.illusory_confidence_flag
+        assert state.C.mastery_prob < before
+        ok, issues = state.validate()
+        assert ok, issues
+
     def test_misconception_keyword_discount(self):
         engine = BeliefEngine()
         state = engine.create_initial_state("u1")
