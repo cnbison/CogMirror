@@ -44,7 +44,8 @@ def _tc_display_name(engine: BeliefEngine, tid: str) -> str:
 
 def ask_self_confidence() -> float | None:
     while True:
-        raw = input("答题前自评：你有多大把握答对？（0-100，直接回车跳过）").strip()
+        # 末尾 \n：跳过自评（直接回车）时下一行提示另起一行，避免与选项粘连
+        raw = input("答题前自评：你有多大把握答对？（0-100，直接回车跳过）\n").strip()
         if raw == "":
             return None
         try:
