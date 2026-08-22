@@ -61,6 +61,13 @@ class TestGrading:
         score, _ = bank.grade_answer(q, "def sum_to(n):\n    return 0")
         assert score == 0.0
 
+    def test_code_recursion_global_lookup(self, bank):
+        """回归：递归代码的全局名字查找（exec 拆 globals/locals 曾误判 NameError）."""
+        q = bank.get("pr-l3-01")
+        good = "def factorial(n):\n    return 1 if n <= 1 else n * factorial(n - 1)"
+        score, details = bank.grade_answer(q, good)
+        assert score == 1.0, details
+
     def test_code_partial_credit(self, bank):
         """核心场景：代码逻辑对但有小瑕疵（部分用例失败）不得判全错."""
         q = bank.get("pl-l3-01")

@@ -7,6 +7,7 @@
 
 ### 修复
 
+- 代码判分递归误判：`exec` 拆开 globals/locals 导致用户函数的 `__globals__` 落在独立 dict，正确的递归代码被判 `NameError`（自测发现）；改为同一 dict，`make_counter` 专用判分同修
 - C 维度伪自信折扣持久化到 discount_factor：此前命中伪自信后数值会被下一次 MIRT 重算覆盖，现在每次更新末尾按 `sigmoid(θ_C) × discount_factor` 折算；顺带修复 misconception 折扣双重应用的问题
 - 认知地图诚实标注：X 维度标注「MVP 未提供支架/提示机制，暂未测量」，Bloom L5/L6 标注「暂无对应层级题目」（题库当前最高 L4），不再显示先验假数值
 - TC 显示名统一为单一来源 `engine.tc_detector.tc_library`，删除 content 库的隐式 key 拼装，同步两库文案避免漂移

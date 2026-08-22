@@ -105,12 +105,14 @@ def grade_fill(question: Question, user_answer: str) -> float:
 
 def grade_code(question: Question, user_code: str, timeout_sec: int = 5) -> tuple[float, list[dict]]:
     """运行测试用例判分，返回 (score, 每个用例的通过详情)."""
-    namespace: dict[str, Any] = {}
+    # globals/locals 用同一个 dict：拆开会让用户函数 __globals__ 落在独立 dict，
+    # 递归/全局名字查找失败（自测发现：正确的递归代码被判 NameError）
+    namespace: dict[str, Any] = {"__builtins__": __builtins__}
     old_handler = signal.signal(signal.SIGALRM, _alarm_handler)
     try:
         signal.alarm(timeout_sec)
         try:
-            exec(user_code, {"__builtins__": __builtins__}, namespace)  # noqa: S102 - 本地单用户学习工具
+            exec(user_code, namespace, namespace)  # noqa: S102 - 本地单用户学习工具
         except GradingTimeout:
             return 0.0, [{"error": f"代码执行超时（>{timeout_sec}s），疑似死循环，所有用例未通过"}]
         except SyntaxError as e:
@@ -395,9 +397,9 @@ def _bank() -> list[Question]:
 
 # make_counter 是闭包题，测试用例结构特殊（返回值是函数），单独处理
 def _grade_make_counter(user_code: str) -> tuple[float, list[dict]]:
-    ns: dict[str, Any] = {}
+    ns: dict[str, Any] = {"__builtins__": __builtins__}
     try:
-        exec(user_code, {"__builtins__": __builtins__}, ns)  # noqa: S102
+        exec(user_code, ns, ns)  # noqa: S102
         make = ns.get("make_counter")
         counter = make()
         results = [counter(), counter(), counter()]
