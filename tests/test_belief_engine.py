@@ -112,6 +112,15 @@ class TestBeliefEngineUpdate:
         state = engine.update(state, make_obs("q2", "python.loops", 0.0, bloom=BloomLevel.APPLY))
         assert state.bloom_profile.apply < before
 
+    def test_bloom_layers_differentiate(self):
+        # 步长加大后，练过的层明显高于先验、未练的层保持 0.5，六层拉开可见差距
+        engine = BeliefEngine()
+        state = engine.create_initial_state("u1")
+        for i in range(4):
+            state = engine.update(state, make_obs(f"q{i}", "python.loops", 1.0, bloom=BloomLevel.APPLY))
+        assert state.bloom_profile.apply > 0.8
+        assert state.bloom_profile.remember == pytest.approx(0.5)
+
     def test_bloom_probability_clamped(self):
         engine = BeliefEngine()
         state = engine.create_initial_state("u1")

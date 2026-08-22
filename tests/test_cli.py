@@ -58,6 +58,28 @@ def test_illusory_confidence_shown_in_map(monkeypatch, tmp_path):
     )
     assert "伪自信点" in out
     assert "pv-l1-01" in out
+    assert "发现 1 处失准" in out
+
+
+def test_c_dimension_calibrated_when_no_illusory(monkeypatch, tmp_path):
+    # 自评与表现一致（无失准）-> C 显示"未发现失准"，不再给误导性数值
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["90\n", "1\n", "90\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    assert "未发现失准" in out
+    assert "置信度" in out
+
+
+def test_c_dimension_no_selfconf_data(monkeypatch, tmp_path):
+    # 从未填自评 -> C 显示"暂无自评数据"
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["\n", "1\n", "\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    assert "暂无自评数据" in out
 
 
 def test_x_dimension_annotated_unmeasured(monkeypatch, tmp_path):

@@ -10,7 +10,10 @@
 - 代码判分递归误判：`exec` 拆开 globals/locals 导致用户函数的 `__globals__` 落在独立 dict，正确的递归代码被判 `NameError`（自测发现）；改为同一 dict，`make_counter` 专用判分同修
 - C 维度伪自信折扣持久化到 discount_factor：此前命中伪自信后数值会被下一次 MIRT 重算覆盖，现在每次更新末尾按 `sigmoid(θ_C) × discount_factor` 折算；顺带修复 misconception 折扣双重应用的问题
 - 认知地图诚实标注：X 维度标注「MVP 未提供支架/提示机制，暂未测量」，Bloom L5/L6 标注「暂无对应层级题目」（题库当前最高 L4），不再显示先验假数值
+- C 维度改为状态显示：无失准证据时不再显示误导性先验数值（0.55 曾被读成"中等自信"），显示「未发现失准（N 次自评与表现一致）」或「暂无自评数据」；有伪自信命中才显示打折后的数值
+- Bloom 六层步长 0.05 → 0.12：练过的层与未练的层拉开可见差距（自测反馈"六层数值差异不大"）
 - 自评 prompt 末尾加换行：跳过自评（直接回车）时下一提示不再粘连（真机自测复现）
+- map-only 恢复时保留 self_confidence，C 维度状态在二次进入时不再误判"暂无自评数据"
 - TC 显示名统一为单一来源 `engine.tc_detector.tc_library`，删除 content 库的隐式 key 拼装，同步两库文案避免漂移
 - 修正 liminal → post_liminal 判定：需连续 3 次 L3+ 正确才跨越（此前规则未真正生效）
 

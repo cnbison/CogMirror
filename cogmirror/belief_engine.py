@@ -94,7 +94,9 @@ class BeliefEngineConfig:
 
     evolution_config: EvolutionConfig = field(default_factory=EvolutionConfig)
     mirt_config: MIRTConfig = field(default_factory=MIRTConfig)
-    bloom_update_step: float = 0.05
+    # 步长足够大让六层分布拉开可见差距：0.05 时全对也挤在 0.5-0.65，
+    # 自测反馈"六层数值差异不大"（2026-08-22）
+    bloom_update_step: float = 0.12
     trajectory_maxlen: int = 500
 
 

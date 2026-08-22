@@ -117,11 +117,24 @@ def print_map(engine: BeliefEngine, state: BeliefState,
     print("═" * 56)
 
     print("\n[5 维状态]（掌握概率）")
+    history = engine.get_history(state.user_id)
+    n_selfconf = sum(1 for h in history if h.get("self_confidence") is not None)
     for dim, label in DIM_LABELS.items():
         d = getattr(state, dim)
         if dim == "X":
             # MVP 无支架/提示机制，X 无观测来源，诚实标注而不是给一个先验假数值
             print(f"  {dim} {label:<16} （MVP 未提供支架/提示机制，暂未测量）")
+            continue
+        if dim == "C":
+            if state.C.illusory_confidence_hits:
+                print(f"  {dim} {label:<16} {_bar(d.mastery_prob)}"
+                      f"（发现 {len(state.C.illusory_confidence_hits)} 处失准，见下方）")
+            elif n_selfconf > 0:
+                # 无失准证据时系统并未"测出 0.55"——不显示误导性先验数值
+                # （自测反馈：数值 0.55 被读成"中等自信"，实际语义是校准信息不足）
+                print(f"  {dim} {label:<16} 未发现失准（{n_selfconf} 次自评与表现一致）")
+            else:
+                print(f"  {dim} {label:<16} 暂无自评数据，暂未测量")
             continue
         print(f"  {dim} {label:<16} {_bar(d.mastery_prob)}")
 
@@ -194,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         # 从作答历史恢复引擎内部状态（MIRT 输入）
         history = [
             {"problem_id": r["problem_id"], "correct": r["correct"], "score": r["score"],
-             "bloom_level": r["bloom_level"]}
+             "bloom_level": r["bloom_level"], "self_confidence": r["self_confidence"]}
             for r in db.load_responses(args.user)
         ]
         engine.set_history(args.user, history)
