@@ -23,6 +23,8 @@
 ### 说明
 
 - 临界概念三态机经双线验证（detector 单测 + 引擎集成测试）：liminal 进入、答错重置连续计数、3 次连续 L3+ 正确后 post_liminal 均按规则生效。已知限制：题库各 topic 的 L3+ 题量不足（仅 loops 有 3 道），post_liminal 态在产品内端到端暂不可达，已记 SOMEDAY
+- 产品定位调整（2026-08-23）：对话式认知诊断上调为核心差异化能力（PRD 第 8/8a/8b 节），ROADMAP 新增 Phase 0.5 技术 spike（插入 Phase 0 之后）——验证 LLM 从开放对话给出能力估计与独立 ground truth 是否稳定相关；技术方案采用锚定 Bloom+SOLO+5D 图谱的动态追问式对话，P 维度必须提交可执行代码锚点；新增 [REFERENCES-dialogue-assessment.md](./REFERENCES-dialogue-assessment.md) 文献整理
+- SOMEDAY.md 重写为触发式清单（跨领域诊断 / 双Agent互校重新引入 / 插件化），均注明触发条件，未满足前不重新讨论
 
 ## [v0.1.0] - 2026-08-22
 
