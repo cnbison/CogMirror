@@ -2,6 +2,20 @@
 
 这是新项目（工作代号 **CogMirror**，编程学习认知教练）的起始文档集，基于对ECOS项目的深度复盘产出。建好新项目目录后，把这几份文档放进repo根目录，按下面的顺序阅读和执行。
 
+## 当前状态（两条线分开汇报，见 GOVERNANCE 规则5）
+
+- **工程线**：Phase 0 静态题库最小链路可运行——做题（静态题库 + 确定性 partial credit 判分）→ 5D 信念更新（K/P/S/C/X）→ 命令行认知地图（5 维状态 / Bloom 六层 / 伪自信标注 / 临界概念标注 / 一句话建议）；Phase 1 自测完成，97 项自动化测试通过，自测记录见 [SELF-TEST-CHECKLIST.md](./SELF-TEST-CHECKLIST.md)
+- **验证线**：暂无正式真实用户验证结论。Phase 1 为开发者自测（数据不计入正式样本），A 关卡（"第一次见的人能否看懂认知地图"）仅开发者视角初判可懂，正式结论待 Phase 2 真人。当前优先事项是 **Phase 0.5 对话式诊断可行性 spike**（验证 LLM 从对话给出的能力估计与 ground truth 是否稳定相关，见 [ROADMAP.md](./ROADMAP.md) 与 [PRD.md](./PRD.md) 第 8a/8b 节）
+
+## 快速开始
+
+```bash
+pip install -e ".[dev]"
+pytest                      # 跑测试
+cogmirror                   # 交互式答题 + 认知地图（或 python -m cogmirror.cli）
+cogmirror --map-only        # 只看地图不答题
+```
+
 ## 文档清单与阅读顺序
 
 1. **[PRD.md](./PRD.md)** —— 先读这个。产品定位、目标用户、MVP范围、明确的Out of Scope、成功指标。这是"做什么、不做什么"的唯一真相来源。
