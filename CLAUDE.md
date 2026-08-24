@@ -5,7 +5,7 @@
 ## 项目背景
 
 - CogMirror：成年自学者的 Python 学习认知教练，从 ECOS 项目选择性迁移重启
-- 现阶段只做"做题"一种交互形式，只服务 Python 一个学科，MVP 无 LLM 依赖（静态题库 + 确定性判分）
+- 现阶段 MVP 判分链路只做"做题"一种交互形式、只服务 Python 一个学科、无 LLM 依赖（静态题库 + 确定性判分）；对话式诊断是独立技术 spike（Phase 0.5，见 [PRD.md](./PRD.md) 第 8/8a 节），不进 MVP 判分链路
 - 版本号从 v0.1.0 重新开始，不继承 ECOS 的 v0.9x
 
 ## 硬规则（违反任何一条都是事故，不是风格问题）
@@ -24,11 +24,11 @@
 - POMDP/PBVI 等重型策略算法（数据规模不支撑）
 - Multi-Domain 通用内核 / 插件化 / B端（用 LinUCB/Thompson 足够）
 - 游戏化激励、长期陪伴叙事
-- 开放对话学习的认知信号提取（PRD 第8节未解难题，需单独预研）
+- 开放对话学习的认知信号提取：作为产品功能仍不做；Phase 0.5 仅做锚定 Bloom+SOLO+5D 图谱的追问式对话 spike 预研（可行性验证，见 [PRD.md](./PRD.md) 第 8a/8b 节），spike 通过 ≠ 可上产品，仍需 Phase 2 真人验证
 
 ## 工程约定
 
-- Python ≥3.11，依赖仅 numpy + scipy；判分确定性可复现，不引入 LLM
+- Python ≥3.11，依赖仅 numpy + scipy；判分确定性可复现，不引入 LLM（Phase 0.5 对话 spike 是独立实验，不进入判分链路）
 - 测试：`pytest`，当前 81 项全绿是新代码的底线，提交前必须跑
 - 命名用 user_id（不是 student_id）；无监护人同意相关字段（成人向合规：可导出、可删除）
 - ECOS 相关的"为什么"见 [LESSONS-FROM-ECOS.md](./LESSONS-FROM-ECOS.md)
