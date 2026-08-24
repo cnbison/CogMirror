@@ -3,7 +3,7 @@
 > **版本**：v0.1.0（草案）
 > **状态**：待验证的MVP假设，非已确定的产品方案
 > **性质**：本文档是ECOS项目复盘后的战略转向产物——从"K12教育认知操作系统"收缩为"成年自学者的单一垂直工具"
-> **前置阅读**：[MIGRATION.md](./MIGRATION.md)（代码迁移方案）、[ROADMAP.md](./ROADMAP.md)（分阶段计划）、[GOVERNANCE.md](./GOVERNANCE.md)（继承自ECOS的治理硬规则）、[SOMEDAY.md](./SOMEDAY.md)（暂缓事项及触发条件）、[REFERENCES-dialogue-assessment.md](./REFERENCES-dialogue-assessment.md)（对话式认知诊断文献）
+> **前置阅读**：[MIGRATION.md](./MIGRATION.md)（代码迁移方案）、[ROADMAP.md](./ROADMAP.md)（分阶段计划）、[GOVERNANCE.md](./GOVERNANCE.md)（继承自ECOS的治理硬规则）、[SOMEDAY.md](./SOMEDAY.md)（暂缓事项及触发条件）、[REFERENCES-dialogue-assessment.md](./REFERENCES-dialogue-assessment.md)（对话式认知诊断文献）、[docs/c-x-gpt.md](./docs/c-x-gpt.md)（5D 语义分层外部讨论记录）
 
 ---
 
@@ -132,6 +132,39 @@ MVP阶段唯一需要回答的问题：**"认知地图"这个功能本身，对�
    - X（元认知）：对话模式的理想应用场景，用户在对话中自然流露的犹豫、修正比静态题目单独问"你有多确定"能捕捉到远丰富得多的信号
    - **P（程序技能）：对话模式下存在系统性高估风险，需要专门防护**。编程教育研究中"能说清楚怎么做"和"真的能做出来"是两种不同能力，纯口头解释代码逻辑不代表能独立写出可运行代码。**执行要求**：即使整体交互形式是对话，涉及P维度判断时必须让用户提交实际可执行的代码片段作为锚点，不能仅凭口头描述评估，这是唯一一个不能完全脱离"产出物"的维度。
 
+### 5D 的语义分层：潜变量 vs 观测证据（决策，2026-08-24）
+
+**C/X 定义差异的根因**（外部讨论详见 [docs/c-x-gpt.md](./docs/c-x-gpt.md)，结论采纳于此）：当前代码里的 C=置信度、X=外部支架是 **ECOS 继承的操作性实现**，描述的是"可观测信号 / 表现发生的环境条件"，不是"认知结构本身"。而 5D 作为认知架构的潜变量，语义应以本节的理论映射为基准——**C=概念联结、X=元认知**。这不是代码写错了，是两类东西（潜变量 vs 观测指标）被同名混在了一起，需要显式分层，而不是靠改字段名解决。
+
+**三层状态模型**（这决定了 MIRT/BKT/对话诊断各自该放哪一层）：
+
+| 层 | 内容 | 性质 |
+|---|---|---|
+| L1 潜变量（Latent 5D） | K/P/S/C/X | 真正要画进"认知地图"的认知状态；由 L3 证据推断而来 |
+| L2 结构化投影 | Bloom / SOLO / TC / Misconception / 知识图谱 | 5D 在具体知识领域的结构化投影，不是与 5D 同层的东西 |
+| L3 观测证据（Evidence） | self_confidence、actual performance、scaffolding/hints、code execution、explanation、revision、response time、error patterns | 可测信号，参与 L1 推断；≠ L1 |
+
+**五问框架**（维度自明的核心问题，也是 S 与 X 的区分原则）：
+
+| 维度 | 核心问题 | 语义 |
+|---|---|---|
+| K | 我知道什么？ | 陈述性知识 |
+| P | 我能做什么？ | 程序性知识 |
+| S | 我应该怎么做？ | 条件性知识（策略） |
+| C | 这些知识之间如何连接？ | 概念联结（图式/结构知识） |
+| X | 我如何知道自己是否知道？ | 元认知（Flavell） |
+
+**决策**：
+- 5D 语义基准定为 **C=概念联结、X=元认知**（L1）。
+- **Confidence 与 External Support 不删除，降级为 L3 证据/上下文变量**，参与 L1 推断——不再作为 5D 维度。
+- 现代码 C 同时装了校准 + misconception + TC，属**构念污染**；语义迁移后：校准（伪自信）归入 X 的元认知证据，TC/misconception 归入 C 的概念联结证据。
+
+**可测性排序（执行约束，防止"抽象先于验证"）**：
+- C=概念联结 的观测证据（解释/类比/迁移/关系判断）**静态 choice/fill/code 题库采不到**，只有对话模式（Phase 0.5）能采到。因此：
+  - 语义基准现在定（便宜，且 spike 需要知道自己在估什么）
+  - **代码不重命名、C 在 Phase 0.5 前保持未测量（沿用诚实标注）**，避免"名字变了、算法没变"的中间态
+  - 重写 C/X 的推断逻辑（对应 c-x-gpt 的 Phase C/D）**必须等 spike 数据确认可测性之后**，现在不动手
+
 ## 9. 隐私与数据（成人向，不同于ECOS的未成年人合规框架）
 
 - 不需要监护人同意流程，但需要标准的用户数据知情同意（数据用途说明、可导出、可删除）
@@ -145,3 +178,4 @@ MVP阶段唯一需要回答的问题：**"认知地图"这个功能本身，对�
 - [GOVERNANCE.md](./GOVERNANCE.md) — 继承自ECOS的治理硬规则（防虚标、双指标验证等）
 - [SOMEDAY.md](./SOMEDAY.md) — 暂缓事项清单（跨领域诊断、双Agent重新引入等）及各自的触发条件
 - [REFERENCES-dialogue-assessment.md](./REFERENCES-dialogue-assessment.md) — CBA/对话知识追踪相关文献整理
+- [docs/c-x-gpt.md](./docs/c-x-gpt.md) — 5D 语义分层（潜变量 vs 观测证据）的外部讨论记录，采纳结论见第 8b 节
