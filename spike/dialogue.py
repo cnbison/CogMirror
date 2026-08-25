@@ -190,6 +190,12 @@ def _parse_interviewer_response(raw: str) -> dict | None:
     return {"anchor": str(anchor), "question": str(question)}
 
 
+def _is_trivial_question(q: str) -> bool:
+    """退化提问判定：空、过短、或纯省略号（真实运行出现过的 '...'）."""
+    q = q.strip()
+    return (not q) or len(q) < 3 or bool(re.fullmatch(r"\.+", q))
+
+
 class DialogueEngine:
     """锚定追问对话引擎.
 
@@ -226,9 +232,9 @@ class DialogueEngine:
             else:
                 picked = self._ask_interviewer(state, node)
                 if picked is None:
-                    # 两次非法 anchor：记录并跳过该节点，避免死循环
+                    # 两次非法响应（anchor 非法或提问退化）：记录并跳过该节点
+                    # （skipped 计入"不再选"集合，但不计入 covered_nodes——跳过的节点不算被覆盖）
                     state.skipped_anchors.append(node.node_id)
-                    state.covered_nodes.add(node.node_id)
                     continue
                 anchor = picked["anchor"]
                 question = picked["question"]
@@ -256,9 +262,10 @@ class DialogueEngine:
     # ── 内部 ──────────────────────────────────────────────────────────
 
     def _pick_next(self, state: DialogueState) -> GraphNode | None:
+        done = state.covered_nodes | set(state.skipped_anchors)
         for topic in self.topics:
             for node in self.graph.all_nodes():  # 已按 bloom->solo->dim 排序
-                if node.topic == topic and node.node_id not in state.covered_nodes:
+                if node.topic == topic and node.node_id not in done:
                     return node
         return None
 
@@ -289,7 +296,7 @@ class DialogueEngine:
         return "\n".join(parts)
 
     def _ask_interviewer(self, state: DialogueState, node: GraphNode) -> dict | None:
-        """调面试官生成提问；anchor 非法重试一次，仍非法返回 None."""
+        """调面试官生成提问；anchor 非法或提问退化时重试一次，仍非法返回 None."""
         for _ in range(2):
             raw = self.llm.complete(
                 INTERVIEWER_SYSTEM,
@@ -298,7 +305,8 @@ class DialogueEngine:
                 json_schema=INTERVIEWER_SCHEMA,
             )
             picked = _parse_interviewer_response(raw)
-            if picked and self.graph.has(picked["anchor"]):
+            if picked and self.graph.has(picked["anchor"]) \
+                    and not _is_trivial_question(picked["question"]):
                 return picked
         return None
 

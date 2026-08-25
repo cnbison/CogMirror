@@ -114,6 +114,43 @@ class TestParseInterviewerResponse:
         assert _parse_interviewer_response("完全不是 JSON 也没有花括号") is None
 
 
+class TestTrivialQuestionGuard:
+    def test_trivial_question_retried_then_succeeds(self, graph, bank):
+        """第一次返回 '...' 退化提问 -> 重试一次后成功，节点不被跳过."""
+        calls = {"n": 0}
+
+        def responder(system, user):
+            if "评卷判据" in system:
+                return "{}"
+            calls["n"] += 1
+            node_id = user.split("本轮要探测的节点 id：")[1].split("\n")[0]
+            if calls["n"] == 1:
+                return json.dumps({"anchor": node_id, "question": "..."})
+            return json.dumps({"anchor": node_id, "question": "请回答。"})
+
+        engine = _engine(graph, bank, responder)
+        state = engine.run("u1", ask=lambda node: "答案")
+        assert state.covered_nodes == set(ALL_LOOPS)
+        assert state.skipped_anchors == []
+        assert calls["n"] == 4  # L1 退化重试(2) + L2(1) + L4(1)
+
+    def test_persistent_trivial_question_skipped(self, graph, bank):
+        """该节点一直返回 '...' -> 跳过并记录；其余节点不受影响."""
+
+        def responder(system, user):
+            node_id = user.split("本轮要探测的节点 id：")[1].split("\n")[0]
+            if node_id == "loops-L1-S1-K":
+                return json.dumps({"anchor": node_id, "question": "..."})
+            return json.dumps({"anchor": node_id, "question": "请回答。"})
+
+        engine = _engine(graph, bank, responder)
+        state = engine.run("u1", ask=lambda node: "答案")
+        assert "loops-L1-S1-K" in state.skipped_anchors
+        assert "loops-L1-S1-K" not in state.covered_nodes
+        # 其余节点正常覆盖
+        assert {"loops-L2-S2-C", "loops-L3-S3-P", "loops-L4-S4-S"} <= state.covered_nodes
+
+
 RECURSION_TOPIC = "python.recursion"
 
 
