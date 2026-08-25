@@ -61,8 +61,9 @@ class TestSmokeEndToEnd:
         }
 
     def test_smoke_without_env_vars(self, monkeypatch, tmp_path):
-        """smoke 不依赖任何环境变量（无 ANTHROPIC_API_KEY 也能跑）."""
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("COGMIRROR_SPIKE_MODEL", raising=False)
+        """smoke 不依赖任何环境变量（无 MINIMAX_* 也能跑）."""
+        monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+        monkeypatch.delenv("MINIMAX_BASE_URL", raising=False)
+        monkeypatch.delenv("MINIMAX_MODEL", raising=False)
         code, out, _ = _run_smoke(monkeypatch, tmp_path)
         assert code == 0

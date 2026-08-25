@@ -15,7 +15,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 # Phase 0.5 spike 专用（不进 dependencies：MVP 仍只 numpy+scipy）
-spike = ["anthropic>=0.40"]
+# 项目标配 LLM = MiniMax-M3（OpenAI 兼容协议）
+spike = ["openai>=1.0"]
 
 [project.scripts]
 cogmirror = "cogmirror.cli:main"

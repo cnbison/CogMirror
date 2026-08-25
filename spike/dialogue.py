@@ -142,7 +142,7 @@ class DialogueEngine:
     """锚定追问对话引擎.
 
     Args:
-        llm: 面试官 LLM 客户端（FakeLLM 或 AnthropicClient）
+        llm: 面试官 LLM 客户端（FakeLLM 或 OpenAICompatClient）
         graph: 技能图谱（anchor 合法性的唯一来源）
         bank: 题库（CODE 节点题面 + 确定性判分）
         topics: 要诊断的 topic 列表（PythonBasicsTopic.value）

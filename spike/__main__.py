@@ -7,7 +7,8 @@
   python -m spike smoke [--topics loops variables]
 
 smoke 用 FakeLLM 全链路跑通，无需任何环境变量 / API key（可复现）。
-diagnose 走真实 AnthropicClient，需要 ANTHROPIC_API_KEY。
+diagnose 走真实 OpenAI 兼容客户端（项目标配 MiniMax-M3），
+需 MINIMAX_API_KEY / MINIMAX_BASE_URL / MINIMAX_MODEL（可从仓库根 .env 提供）。
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from cogmirror.questions import QuestionBank
 from .compare import compare_n1, render_comparison
 from .dialogue import DialogueEngine
 from .graph import build_graph, DimensionId, Graph, TOPIC_SHORT_TO_ID
-from .llm import AnthropicClient, LLMConfig, SpikeConfigError
+from .llm import LLMConfig, OpenAICompatClient, SpikeConfigError
 from .protocol import (
     GRAPH_VERSION,
     GroundTruthAnchors,
@@ -114,10 +115,11 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
     topics = _resolve_topics(args.topics)
 
     try:
-        llm = AnthropicClient(LLMConfig(model=args.model) if args.model else LLMConfig())
+        llm = OpenAICompatClient(LLMConfig(model=args.model) if args.model else LLMConfig())
     except SpikeConfigError as e:
         print(f"无法启动诊断: {e}")
-        print("提示：设置 ANTHROPIC_API_KEY 环境变量后再运行 diagnose；"
+        print("提示：在仓库根 .env 或环境变量中设置 MINIMAX_API_KEY / "
+              "MINIMAX_BASE_URL / MINIMAX_MODEL 后再运行 diagnose；"
               "冒烟测试用 python -m spike smoke 无需任何环境变量。")
         return 1
 

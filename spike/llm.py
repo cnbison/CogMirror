@@ -1,13 +1,14 @@
 """LLM 客户端封装——spike 唯一的 LLM 出口.
 
 约定：
-- anthropic 必须惰性导入（函数内 import）：未安装 anthropic 依赖时，
+- 项目标配 LLM = MiniMax-M3，走 OpenAI 兼容协议（base_url 指向 MiniMax v1）。
+- openai SDK 惰性导入（函数内 import）：未安装 openai 依赖时，
   `python -m spike smoke` 与全部测试（用 FakeLLM）仍能正常导入运行。
-- API key 只从环境变量 ANTHROPIC_API_KEY 读取，绝不写进代码或 prompt。
-- 稳定 system 块放前 + cache_control ephemeral 做 prompt caching；
-  volatile 对话内容在后（缓存是前缀匹配，任何前缀字节变化都会失效）。
-- 结构化输出：json_schema 非空时走 output_config.format
-  （claude-api skill 确认的当前 SDK 用法；Sonnet 4.6 支持）。
+- API key 只从环境变量 MINIMAX_API_KEY 读取，绝不写进代码或 prompt；
+  仓库根 .env（已 gitignore）可用 _load_dotenv 自动加载，仅 setdefault 不覆盖已设环境变量。
+- 结构化输出：json_schema 非空时走 response_format（OpenAI 兼容）；若端点不支持
+  则降级为普通文本（面试官/评分器都有宽松 JSON 解析兜底）。
+- cache_breakpoint 是 Anthropic 特有（prompt caching），OpenAI 兼容路径忽略。
 """
 
 from __future__ import annotations
@@ -15,9 +16,40 @@ from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "MiniMax-M3"
+DEFAULT_BASE_URL = "https://api.minimaxi.com/v1"
+_DEFAULT_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+# 测试可 monkeypatch：指向不存在的路径即可隔离真实 .env 对缺省值的干扰
+_ENV_PATH: Path | None = _DEFAULT_ENV_PATH
+_loaded_env_paths: set[str] = set()
+
+
+def _load_dotenv(path: Path | None = None) -> None:
+    """加载仓库根 .env（KEY=VALUE 行），只 setdefault 不覆盖已有环境变量."""
+    path = path or _ENV_PATH
+    if not path or not path.is_file() or str(path) in _loaded_env_paths:
+        return
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, value)
+    finally:
+        _loaded_env_paths.add(str(path))
+
+
+def _getenv(key: str, default: str) -> str:
+    _load_dotenv()
+    return os.environ.get(key, default)
 
 
 class SpikeLLMError(Exception):
@@ -31,10 +63,12 @@ class SpikeConfigError(SpikeLLMError):
 @dataclass
 class LLMConfig:
     model: str = field(
-        default_factory=lambda: os.environ.get("COGMIRROR_SPIKE_MODEL", DEFAULT_MODEL))
+        default_factory=lambda: _getenv("MINIMAX_MODEL", DEFAULT_MODEL))
+    base_url: str = field(
+        default_factory=lambda: _getenv("MINIMAX_BASE_URL", DEFAULT_BASE_URL))
     max_tokens: int = 4096
-    temperature: float = 0.2
-    api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
+    temperature: float | None = 0.2
+    api_key: str = field(default_factory=lambda: _getenv("MINIMAX_API_KEY", ""))
 
 
 class LLMClient(ABC):
@@ -47,9 +81,9 @@ class LLMClient(ABC):
         """单轮补全。
 
         Args:
-            system: 稳定 system 指令（放前，可缓存）
+            system: 稳定 system 指令（放前）
             user: 易变对话内容（放后）
-            cache_breakpoint: 在 system 块上加 cache_control ephemeral
+            cache_breakpoint: 是否要求缓存断点（Anthropic prompt caching，OpenAI 兼容路径忽略）
             json_schema: 非空时要求结构化输出（json_schema 的 JSON Schema）
         Returns:
             assistant 文本
@@ -60,53 +94,59 @@ class LLMClient(ABC):
         """释放资源."""
 
 
-class AnthropicClient(LLMClient):
-    """官方 Anthropic SDK 实现（惰性导入 anthropic）."""
+class OpenAICompatClient(LLMClient):
+    """MiniMax-M3 等 OpenAI 兼容端点的实现（惰性导入 openai SDK）."""
 
     def __init__(self, config: LLMConfig | None = None) -> None:
         self.config = config or LLMConfig()
         if not self.config.api_key:
             raise SpikeConfigError(
-                "未设置 ANTHROPIC_API_KEY 环境变量（API key 只从环境变量读取）")
-        import anthropic  # 惰性导入：未装依赖时模块仍可导入
-        self._anthropic = anthropic
-        self._client = anthropic.Anthropic(api_key=self.config.api_key)
+                "未设置 MINIMAX_API_KEY（可从仓库根 .env 或环境变量提供）")
+        import openai  # 惰性导入：未装依赖时模块仍可导入
+        self._openai = openai
+        self._client = openai.OpenAI(api_key=self.config.api_key,
+                                     base_url=self.config.base_url)
 
     def complete(self, system: str, user: str, *,
                  cache_breakpoint: bool = False,
                  json_schema: dict | None = None) -> str:
-        system_param: str | list[dict]
-        if cache_breakpoint:
-            system_param = [{
-                "type": "text",
-                "text": system,
-                "cache_control": {"type": "ephemeral"},
-            }]
-        else:
-            system_param = system
-
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
         kwargs: dict = {
             "model": self.config.model,
             "max_tokens": self.config.max_tokens,
-            "system": system_param,
-            "messages": [{"role": "user", "content": user}],
+            "messages": messages,
         }
         if self.config.temperature is not None:
             kwargs["temperature"] = self.config.temperature
+
         if json_schema is not None:
-            kwargs["output_config"] = {"format": {"type": "json_schema", "schema": json_schema}}
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "structured_output",
+                                "schema": json_schema, "strict": False},
+            }
+            try:
+                resp = self._client.chat.completions.create(**kwargs)
+                return self._extract_text(resp)
+            except self._openai.APIError:
+                # 端点不支持 json_schema 时降级为普通文本（宽松 JSON 解析兜底）
+                kwargs.pop("response_format", None)
 
         try:
-            resp = self._client.messages.create(**kwargs)
-        except self._anthropic.RateLimitError as e:
-            raise SpikeLLMError(f"LLM 速率限制: {e}") from e
-        except self._anthropic.APIError as e:
+            resp = self._client.chat.completions.create(**kwargs)
+        except self._openai.APIError as e:
             raise SpikeLLMError(f"LLM API 错误: {e}") from e
+        return self._extract_text(resp)
 
-        for block in resp.content:
-            if block.type == "text":
-                return block.text
-        raise SpikeLLMError("LLM 返回内容中没有文本块")
+    @staticmethod
+    def _extract_text(resp) -> str:
+        try:
+            return resp.choices[0].message.content or ""
+        except (AttributeError, IndexError):
+            raise SpikeLLMError("LLM 返回内容中没有文本")
 
     def close(self) -> None:
         try:
