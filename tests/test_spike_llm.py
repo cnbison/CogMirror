@@ -137,21 +137,14 @@ class TestOpenAICompatClient:
         assert client._client.kwargs["api_key"] == "sk-test"
         client.close()
 
-    def test_json_schema_sets_response_format(self, monkeypatch, no_env_file):
+    def test_json_schema_accepted_but_no_response_format(self, monkeypatch, no_env_file):
+        """MiniMax 不支持 json_schema response_format——参数接受但单次调用，不发送."""
         calls, _, _ = self._install_fake_openai(monkeypatch)
-        client = OpenAICompatClient(LLMConfig(api_key="sk-test"))
-        client.complete("s", "u", json_schema={"type": "object"})
-        assert calls[0]["response_format"]["type"] == "json_schema"
-        assert calls[0]["response_format"]["json_schema"]["schema"] == {"type": "object"}
-
-    def test_json_schema_unsupported_falls_back(self, monkeypatch, no_env_file):
-        calls, errors, APIError = self._install_fake_openai(monkeypatch)
-        errors.append(APIError("unsupported"))
         client = OpenAICompatClient(LLMConfig(api_key="sk-test"))
         out = client.complete("s", "u", json_schema={"type": "object"})
         assert out == '{"ok": true}'
-        assert len(calls) == 2
-        assert "response_format" not in calls[1]
+        assert len(calls) == 1
+        assert "response_format" not in calls[0]
 
     def test_api_error_wrapped(self, monkeypatch, no_env_file):
         calls, errors, APIError = self._install_fake_openai(monkeypatch)

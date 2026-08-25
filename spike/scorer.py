@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from cogmirror.belief_state import BloomLevel
 
-from .dialogue import AnchorTurn, ExecResult
+from .dialogue import AnchorTurn, ExecResult, extract_json_object
 from .graph import DimensionId, Graph
 from .llm import LLMClient
 
@@ -68,7 +68,16 @@ GRADER_ROLE: str = (
     "能否自我修正。\n"
     "5. X 判据（元认知）：是否有『预测->行动->结果->比较->修正』闭环、自评是否校准、"
     "是否表现出犹豫/自我监控/修正行为。\n"
-    "6. 只输出 JSON，结构见 schema；所有数值在 [0,1]（solo 在 [1,5]）。"
+    "6. 只输出一个 JSON 对象，直接输出、不要放进代码块，严格按下面模板（键名与嵌套"
+    "结构必须一致，数值在 [0,1]，solo 在 [1,5]）：\n"
+    "{\n"
+    '  "five_d": {"K": 0.5, "P": 0.4, "S": 0.5, "C": 0.5, "X": 0.5},\n'
+    '  "bloom": {"REMEMBER": 0.5, "UNDERSTAND": 0.5, "APPLY": 0.4, "ANALYZE": 0.5},\n'
+    '  "solo": {"loops": 3.0},\n'
+    '  "overall": 0.55,\n'
+    '  "evidence_notes": {"依据": "说明"},\n'
+    '  "insufficient": []\n'
+    "}"
 )
 
 
@@ -133,6 +142,18 @@ def parse_scorer_output(raw: str) -> ScorerOutput:
                 if isinstance(parsed, dict):
                     data = parsed
                     source = "json_block"
+            except (ValueError, TypeError):
+                pass
+
+    if data is None:
+        # MiniMax-M3 会在 content 里带 thinking 思维链前导——提取第一个平衡 JSON 对象
+        obj = extract_json_object(raw)
+        if obj:
+            try:
+                parsed = json.loads(obj)
+                if isinstance(parsed, dict):
+                    data = parsed
+                    source = "json_extract"
             except (ValueError, TypeError):
                 pass
 

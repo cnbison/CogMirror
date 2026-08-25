@@ -93,6 +93,19 @@ class TestParseScorerOutput:
         assert out.insufficient == ["parsing_failed"]
         assert "parse_warning" in out.evidence_notes
 
+    def test_thinking_preamble_json_extract(self):
+        """MiniMax-M3 思维链前导：content 以 thinking 开头，JSON 在末尾——须能解析."""
+        raw = (' thinkingThe user wants me to grade the learner. response\n'
+               '\n{"five_d": {"K": 0.5, "P": 0.4, "S": 0.5, "C": 0.5, "X": 0.5}, '
+               '"bloom": {"REMEMBER": 0.5, "UNDERSTAND": 0.5, '
+               '"APPLY": 0.5, "ANALYZE": 0.5}, "solo": {}, '
+               '"overall": 0.5, "insufficient": []}')
+        out = parse_scorer_output(raw)
+        assert out.five_d[DimensionId.K] == 0.5
+        assert out.overall == 0.5
+        assert out.insufficient == []
+        assert "json_extract" in out.evidence_notes["parse_warning"]
+
     def test_missing_fields_added_to_insufficient(self):
         raw = json.dumps({
             "five_d": {"K": 0.5},

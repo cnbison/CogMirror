@@ -6,7 +6,11 @@ import pytest
 
 from cogmirror.questions import QuestionBank
 
-from spike.dialogue import DialogueEngine
+from spike.dialogue import (
+    DialogueEngine,
+    _parse_interviewer_response,
+    extract_json_object,
+)
 from spike.graph import build_graph
 from spike.llm import FakeLLM
 
@@ -75,6 +79,39 @@ class TestAnchorEnforcement:
         assert set(state.skipped_anchors) == {"loops-L1-S1-K", "loops-L2-S2-C",
                                               "loops-L4-S4-S"}
         assert "loops-L3-S3-P" in state.covered_nodes
+
+
+class TestExtractJsonObject:
+    def test_extracts_balanced_object_from_preamble(self):
+        raw = (' thinking... response\n'
+               '{"anchor": "loops-L1-S1-K", "question": "请解释 range(5) 的输出。"}')
+        assert extract_json_object(raw) == (
+            '{"anchor": "loops-L1-S1-K", "question": "请解释 range(5) 的输出。"}')
+
+    def test_braces_inside_string_not_confused(self):
+        raw = '前导 {"a": "}", "b": 1} 结尾'
+        assert extract_json_object(raw) == '{"a": "}", "b": 1}'
+
+    def test_nested_objects(self):
+        raw = 'x {"outer": {"inner": 1}, "k": 2}'
+        assert extract_json_object(raw) == '{"outer": {"inner": 1}, "k": 2}'
+
+    def test_no_object_returns_none(self):
+        assert extract_json_object("完全没有 JSON 花括号") is None
+
+
+class TestParseInterviewerResponse:
+    def test_thinking_preamble_parsed(self):
+        """MiniMax-M3 思维链前导 + JSON 在末尾——anchor/question 仍须提取出来."""
+        raw = (' thinkingThe learner seems uncertain. response\n'
+               '{"anchor": "loops-L2-S2-C", "question": "range(1,5) 和 range(5) 有何不同？"}')
+        assert _parse_interviewer_response(raw) == {
+            "anchor": "loops-L2-S2-C",
+            "question": "range(1,5) 和 range(5) 有何不同？",
+        }
+
+    def test_garbage_returns_none(self):
+        assert _parse_interviewer_response("完全不是 JSON 也没有花括号") is None
 
 
 RECURSION_TOPIC = "python.recursion"

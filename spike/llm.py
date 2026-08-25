@@ -6,8 +6,9 @@
   `python -m spike smoke` 与全部测试（用 FakeLLM）仍能正常导入运行。
 - API key 只从环境变量 MINIMAX_API_KEY 读取，绝不写进代码或 prompt；
   仓库根 .env（已 gitignore）可用 _load_dotenv 自动加载，仅 setdefault 不覆盖已设环境变量。
-- 结构化输出：json_schema 非空时走 response_format（OpenAI 兼容）；若端点不支持
-  则降级为普通文本（面试官/评分器都有宽松 JSON 解析兜底）。
+- 结构化约束：MiniMax-M3 不支持 OpenAI 式 json_schema response_format（400），
+  json_object 也去不掉 content 里的思维链前导——依赖调用方宽松 JSON 解析兜底
+  （dialogue.extract_json_object），client 不发送 response_format。
 - cache_breakpoint 是 Anthropic 特有（prompt caching），OpenAI 兼容路径忽略。
 """
 
@@ -110,6 +111,9 @@ class OpenAICompatClient(LLMClient):
     def complete(self, system: str, user: str, *,
                  cache_breakpoint: bool = False,
                  json_schema: dict | None = None) -> str:
+        # 注：MiniMax-M3 不支持 OpenAI 式 json_schema response_format（400），
+        # json_object 也去不掉 content 里的思维链前导——结构化约束改由调用方
+        # 的宽松 JSON 解析兜底（extract_json_object），故不发送 response_format。
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -121,19 +125,6 @@ class OpenAICompatClient(LLMClient):
         }
         if self.config.temperature is not None:
             kwargs["temperature"] = self.config.temperature
-
-        if json_schema is not None:
-            kwargs["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "structured_output",
-                                "schema": json_schema, "strict": False},
-            }
-            try:
-                resp = self._client.chat.completions.create(**kwargs)
-                return self._extract_text(resp)
-            except self._openai.APIError:
-                # 端点不支持 json_schema 时降级为普通文本（宽松 JSON 解析兜底）
-                kwargs.pop("response_format", None)
 
         try:
             resp = self._client.chat.completions.create(**kwargs)

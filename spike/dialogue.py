@@ -108,6 +108,38 @@ def _extract_exec_result_block(er: ExecResult, include_score: bool) -> str:
     return "\n".join(lines)
 
 
+def extract_json_object(raw: str) -> str | None:
+    """从文本提取第一个平衡的 JSON 对象子串（容忍模型输出的思维链前导）.
+
+    逐字符扫描：遇到 { 开始，跟踪括号深度；字符串字面量（含转义）内的
+    大括号不计数，保证不会在字符串内容处错误截断。找不到平衡对象返回 None。
+    """
+    start = -1
+    depth = 0
+    in_str = False
+    esc = False
+    for i, ch in enumerate(raw):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                return raw[start:i + 1]
+    return None
+
+
 def default_ask(node: GraphNode) -> str:
     """从 stdin 读用户输入：CODE 节点多行（END 结束），其余单行."""
     if node.probe_kind == ProbeKind.CODE:
@@ -124,11 +156,31 @@ def default_ask(node: GraphNode) -> str:
 
 def _parse_interviewer_response(raw: str) -> dict | None:
     """解析面试官输出 {"anchor", "question"}；解析失败返回 None（按非法 anchor 处理）."""
+    data: dict | None = None
     try:
-        data = json.loads(raw)
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            data = parsed
     except (ValueError, TypeError):
+        pass
+    if data is None:
         m = re.search(r"```json\s*(\{.*?\})\s*```", raw, re.DOTALL)
-        data = json.loads(m.group(1)) if m else None
+        if m:
+            try:
+                parsed = json.loads(m.group(1))
+                if isinstance(parsed, dict):
+                    data = parsed
+            except (ValueError, TypeError):
+                pass
+    if data is None:
+        obj = extract_json_object(raw)
+        if obj:
+            try:
+                parsed = json.loads(obj)
+                if isinstance(parsed, dict):
+                    data = parsed
+            except (ValueError, TypeError):
+                pass
     if not isinstance(data, dict):
         return None
     anchor = data.get("anchor")
