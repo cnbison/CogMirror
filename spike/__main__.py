@@ -94,7 +94,8 @@ def _print_diagnose_summary(rec: SessionRecord) -> None:
     print("\n" + "═" * 56)
     print("对话诊断摘要")
     print("═" * 56)
-    print(f"用户: {rec.user_id}   模型: {rec.model}   轮次: {len(rec.transcript)}")
+    covered = len({t.anchor for t in rec.transcript if t.anchor})
+    print(f"用户: {rec.user_id}   模型: {rec.model}   覆盖节点: {covered} 个")
     print(f"P 代码执行锚点: {len(rec.exec_results)} 个")
     if rec.estimate:
         dims = "  ".join(
@@ -125,6 +126,7 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
 
     ground_truth = _collect_bank_anchors(bank, topics) if args.ground_truth else None
 
+    print("\n== 第二步：对话诊断（锚定 Bloom+SOLO+5D 图谱，逐节点追问）==")
     engine = DialogueEngine(llm, graph, bank, topics, max_rounds=args.max_rounds)
     state = engine.run(args.user)
 
