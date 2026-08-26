@@ -26,6 +26,7 @@
 - 产品定位调整（2026-08-23）：对话式认知诊断上调为核心差异化能力（PRD 第 8/8a/8b 节），ROADMAP 新增 Phase 0.5 技术 spike（插入 Phase 0 之后）——验证 LLM 从开放对话给出能力估计与独立 ground truth 是否稳定相关；技术方案采用锚定 Bloom+SOLO+5D 图谱的动态追问式对话，P 维度必须提交可执行代码锚点；新增 [REFERENCES-dialogue-assessment.md](./REFERENCES-dialogue-assessment.md) 文献整理
 - SOMEDAY.md 重写为触发式清单（跨领域诊断 / 双Agent互校重新引入 / 插件化），均注明触发条件，未满足前不重新讨论
 - 5D 语义分层决策（2026-08-24）：C/X 定义差异（PRD 概念联结/元认知 vs 代码现状 置信度/外部支架）根因是潜变量与观测指标同名混用（构念污染）。定稿：5D 语义基准 = C 概念联结、X 元认知（L1 潜变量），置信度/外部支架降级为 L3 观测证据变量（不删除，参与 L1 推断）；状态模型显式三层分层（L1 潜变量 / L2 结构化投影 Bloom·SOLO·TC / L3 观测证据）。可测性排序：C=概念联结 的观测证据静态题库采不到、只有对话模式（Phase 0.5）能采到 → 语义基准现在定，但代码不重命名、C 在 Phase 0.5 前保持未测量，重写 C/X 推断须等 spike 数据。讨论记录见 [docs/c-x-gpt.md](./docs/c-x-gpt.md)，落点见 [PRD.md](./PRD.md) 8b 与 [GOVERNANCE.md](./GOVERNANCE.md) 规则7
+- Phase 0.5 对话诊断 spike 收口（2026-08-26）：工具链完成（`spike/` 目录，185 测试全绿，MiniMax-M3）；真实 n=1 三轮（dev-1/dev-1-r2/dev-1-r3）方向一致——对话估计 ≈ 题库锚点或略低、无系统性高估（dev-1-r3 Δ=-0.03 最干净）；决策不做 5-8 人真人轮（自测驱动、产品未成熟），spike 结论上限=初步观察/自测数据，**P0 判分仍以确定性静态题库为核心、对话式诊断作增强/技术预研**；dev-1-r4 暂缓；5D 区分度验证随多人验证推迟。详见 [ROADMAP.md](./ROADMAP.md) Phase 0.5「执行情况」与 [PRD.md](./PRD.md) 8a
 
 ## [v0.1.0] - 2026-08-22
 
