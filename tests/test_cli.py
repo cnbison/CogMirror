@@ -1,5 +1,6 @@
 """CLI 端到端集成测试（Phase 0 链路：做题 -> 5D 更新 -> 地图展示）."""
 
+import argparse
 import io
 import sys
 
@@ -161,3 +162,57 @@ def test_topic_label_unit():
     assert cli._topic_label("python.recursion") == "递归"
     assert cli._topic_label("python.variables") == "变量赋值"
     assert cli._topic_label("unknown.topic") == "unknown.topic"
+
+
+def test_parse_level_aliases():
+    assert cli._parse_level("L3") == cli.BloomLevel.APPLY
+    assert cli._parse_level("apply") == cli.BloomLevel.APPLY
+    assert cli._parse_level("APPLY") == cli.BloomLevel.APPLY
+    assert cli._parse_level("L1") == cli.BloomLevel.REMEMBER
+    with pytest.raises(argparse.ArgumentTypeError):
+        cli._parse_level("L9")
+
+
+@pytest.mark.parametrize("level", ["L3", "APPLY", "apply"])
+def test_topic_level_filter(monkeypatch, tmp_path, level):
+    # F10 收口：--topic/--level 让「建议做 3 道某 topic 的 L3 题」真正可执行。
+    # 前两道 loops-L3 均为代码题（pl-l3-01 sum_to、pl-l3-02 max_of），用 END 结束输入。
+    answers = [
+        "80\n",
+        "def sum_to(n):\n", "    total = 0\n", "    for i in range(1, n + 1):\n", "        total += i\n", "    return total\n",
+        "END\n",
+        "80\n",
+        "def max_of(nums):\n", "    m = nums[0]\n", "    for x in nums:\n", "        if x > m:\n", "            m = x\n", "    return m\n",
+        "END\n",
+    ]
+    _, out = run_cli(
+        monkeypatch, tmp_path, answers=answers,
+        args=["--topic", "python.loops", "--level", level, "--questions", "2"],
+    )
+    assert "题 1/2" in out and "题 2/2" in out
+    assert "pl-l3-01" in out and "pl-l3-02" in out
+    assert "pl-l1-01" not in out, "不应出现 loops L1 题"
+    assert "pv-l1-01" not in out, "不应出现其他 topic 的题"
+
+
+def test_post_liminal_shown_in_map(monkeypatch):
+    # F10 收口：临界概念「已跨越」态要在认知地图里给确认文案。
+    # 引擎连答 6 次 L3+ 正确（真实 TC 路径）构造 post_liminal 状态后渲染地图。
+    engine = cli.BeliefEngine()
+    bank = cli.QuestionBank()
+    engine.l2.register_items_bulk(bank.mirt_items())
+    state = engine.create_initial_state("t1")
+    for i in range(6):
+        state = engine.update(
+            state, cli.Observation(
+                skill_id="python.loops", problem_id=f"tcq{i}", score=1.0,
+                bloom_level=cli.BloomLevel.APPLY, self_confidence=None,
+                explanation_text="",
+            ))
+    assert state.C.tc_states["python.loops"].status == "post_liminal"
+
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    cli.print_map(engine, state)
+    out = sys.stdout.getvalue()
+    assert "已跨越" in out
+    assert "循环是受控的重复" in out

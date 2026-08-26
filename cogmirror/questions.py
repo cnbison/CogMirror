@@ -391,6 +391,182 @@ def _bank() -> list[Question]:
             options=("[0, 1, 2]", "[2, 2, 2]", "[0, 0, 0]", "报错"), answer=1,
             explanation="闭包捕获的是变量 i 本身而非当时的值；循环结束后 i = 2。（注：lambda 参数默认值 i=i 可修复）",
         ),
+        # ─── 变量与赋值（L3+ 扩充，2026-08-26：F10 三态端到端可达） ──
+        Question(
+            problem_id="pv-l3-02", skill_id="python.variables", topic="python.variables",
+            bloom_level=BloomLevel.APPLY, qtype="choice", loadings={"K": 1.0, "S": 0.3},
+            prompt="执行 x = 3; x = x + 1 时，Python 实际先做什么？",
+            options=(
+                "先把右边 3 + 1 算出来，再把名字 x 绑定到结果 4",
+                "先把 x 复制一份再修改",
+                "报错，x 不能出现在等号两边",
+                "先比较 x 和 x + 1 是否相等",
+            ), answer=0,
+            explanation="赋值语句先计算右边的表达式，再把左边的名字绑定到结果，所以 x = x + 1 合法且常见。",
+        ),
+        Question(
+            problem_id="pv-l3-03", skill_id="python.variables", topic="python.variables",
+            bloom_level=BloomLevel.APPLY, qtype="code", loadings={"P": 1.2},
+            prompt="定义函数 repeat_word(s)，返回 s 重复两次的字符串（如 repeat_word('ab') 返回 'abab'）。",
+            func_name="repeat_word",
+            tests=(
+                TestCase(args=("ab",), expected="abab"),
+                TestCase(args=("x",), expected="xx"),
+                TestCase(args=("",), expected=""),
+            ),
+            explanation="字符串乘法 s * 2 或 s + s 都能实现重复。",
+        ),
+        Question(
+            problem_id="pv-l4-02", skill_id="python.variables", topic="python.variables",
+            bloom_level=BloomLevel.ANALYZE, qtype="choice", loadings={"S": 1.2, "K": 0.4},
+            prompt="a = [1, 2]\nb = a\nb = b + [3]\n执行后 a 的值是？",
+            options=("[1, 2, 3]", "[1, 2]", "报错", "[3]"), answer=1,
+            explanation="b + [3] 创建了新的列表，b 重新绑定到新列表；a 仍指向原列表，不受影响。",
+        ),
+        Question(
+            problem_id="pv-l4-03", skill_id="python.variables", topic="python.variables",
+            bloom_level=BloomLevel.ANALYZE, qtype="choice", loadings={"S": 1.2},
+            prompt="a = [1, 2]\nb = a\nb += [3]\n执行后 a 的值是？",
+            options=("[1, 2, 3]", "[1, 2]", "报错", "None"), answer=0,
+            explanation="列表的 += 是原地修改（等价于 extend），b 与 a 共享同一对象，所以 a 也变成 [1, 2, 3]。",
+        ),
+        # ─── 循环（L3+ 扩充）───────────────────────────────────────
+        Question(
+            problem_id="pl-l3-03", skill_id="python.loops", topic="python.loops",
+            bloom_level=BloomLevel.APPLY, qtype="code", loadings={"P": 1.2},
+            prompt="定义函数 count_even(nums)，返回列表中偶数的个数。",
+            func_name="count_even",
+            tests=(
+                TestCase(args=([1, 2, 3, 4],), expected=2),
+                TestCase(args=([5, 7],), expected=0),
+                TestCase(args=([2, 4, 6],), expected=3),
+            ),
+            explanation="遍历列表，用 n % 2 == 0 判断偶数并计数。",
+        ),
+        Question(
+            problem_id="pl-l3-04", skill_id="python.loops", topic="python.loops",
+            bloom_level=BloomLevel.APPLY, qtype="code", loadings={"P": 1.1, "S": 0.3},
+            prompt="定义函数 sum_range(a, b)，返回从 a 到 b（含两端）所有整数的和。",
+            func_name="sum_range",
+            tests=(
+                TestCase(args=(1, 3), expected=6),
+                TestCase(args=(5, 5), expected=5),
+                TestCase(args=(1, 100), expected=5050),
+            ),
+            explanation="range(a, b+1) 含两端；累加器求和。",
+        ),
+        Question(
+            problem_id="pl-l4-02", skill_id="python.loops", topic="python.loops",
+            bloom_level=BloomLevel.ANALYZE, qtype="choice", loadings={"S": 1.0, "K": 0.4},
+            prompt="执行 for i in range(0, 10, 3): print(i)，依次输出哪些数？",
+            options=("0, 3, 6, 9", "0, 3, 6, 9, 12", "1, 4, 7, 10", "3, 6, 9"), answer=0,
+            explanation="range(0, 10, 3) 从 0 开始、步长 3、不含 10，所以是 0, 3, 6, 9。",
+        ),
+        # ─── 函数（L3+ 扩充）───────────────────────────────────────
+        Question(
+            problem_id="pf-l3-03", skill_id="python.functions", topic="python.functions",
+            bloom_level=BloomLevel.APPLY, qtype="code", loadings={"P": 1.2},
+            prompt="定义函数 first_last(nums)，返回元组 (第一个元素, 最后一个元素)。",
+            func_name="first_last",
+            tests=(
+                TestCase(args=([3, 7, 2, 9],), expected=(3, 9)),
+                TestCase(args=(["a", "b"],), expected=("a", "b")),
+                TestCase(args=([5],), expected=(5, 5)),
+            ),
+            explanation="用索引 0 和 -1 取首尾元素，包成元组返回。",
+        ),
+        Question(
+            problem_id="pf-l3-04", skill_id="python.functions", topic="python.functions",
+            bloom_level=BloomLevel.APPLY, qtype="code", loadings={"P": 1.1, "S": 0.3},
+            prompt="定义函数 sum_list(nums)，返回列表中所有元素的和（空列表返回 0）。",
+            func_name="sum_list",
+            tests=(
+                TestCase(args=([1, 2, 3],), expected=6),
+                TestCase(args=([],), expected=0),
+                TestCase(args=([-1, 1],), expected=0),
+            ),
+            explanation="累加器从 0 开始遍历求和。",
+        ),
+        Question(
+            problem_id="pf-l4-02", skill_id="python.functions", topic="python.functions",
+            bloom_level=BloomLevel.ANALYZE, qtype="choice", loadings={"S": 1.2, "K": 0.4},
+            prompt="def f(x, lst=[]):\n    lst.append(x)\n    return lst\n连续调用 f(1)、f(2)、f(3) 后，f(3) 的返回值是？",
+            options=("[3]", "[1, 2, 3]", "[1]", "报错"), answer=1,
+            explanation="默认参数列表只在函数定义时创建一次，多次调用共享同一个列表对象，元素会跨调用累积。",
+        ),
+        # ─── 递归（L3+ 扩充）───────────────────────────────────────
+        Question(
+            problem_id="pr-l3-02", skill_id="python.recursion", topic="python.recursion",
+            bloom_level=BloomLevel.APPLY, qtype="code", loadings={"P": 1.2},
+            prompt="用递归定义函数 fib(n)，返回第 n 个斐波那契数（fib(0)=0, fib(1)=1）。",
+            func_name="fib",
+            tests=(
+                TestCase(args=(0,), expected=0),
+                TestCase(args=(1,), expected=1),
+                TestCase(args=(10,), expected=55),
+            ),
+            explanation="基准情形 n <= 1 返回 n；否则返回 fib(n-1) + fib(n-2)。",
+        ),
+        Question(
+            problem_id="pr-l3-03", skill_id="python.recursion", topic="python.recursion",
+            bloom_level=BloomLevel.APPLY, qtype="choice", loadings={"K": 1.0},
+            prompt="下列哪个递归函数会无限递归（缺少基准情形）？",
+            options=(
+                "def f(n):\n    return 1 if n <= 1 else f(n - 1)",
+                "def f(n):\n    return f(n - 1)",
+                "def f(n):\n    return 0 if n == 0 else n + f(n - 1)",
+                "def f(n):\n    return n if n == 0 else f(n - 1)",
+            ), answer=1,
+            explanation="第二个函数没有任何基准情形，无论 n 是多少都继续调用 f(n-1)，最终栈溢出。",
+        ),
+        Question(
+            problem_id="pr-l4-02", skill_id="python.recursion", topic="python.recursion",
+            bloom_level=BloomLevel.ANALYZE, qtype="choice", loadings={"S": 1.2},
+            prompt="def g(n):\n    return 0 if n == 0 else 1 + g(n - 1)\n调用 g(3) 时，调用栈最深时有多少层？",
+            options=("3 层", "4 层", "1 层", "无限"), answer=1,
+            explanation="g(3)→g(2)→g(1)→g(0) 共 4 层，到 g(0) 返回 0 后再逐层展开。",
+        ),
+        Question(
+            problem_id="pr-l4-03", skill_id="python.recursion", topic="python.recursion",
+            bloom_level=BloomLevel.ANALYZE, qtype="choice", loadings={"S": 1.0, "K": 0.3},
+            prompt="下列哪个问题用递归解决最自然？",
+            options=("遍历一棵树的所有节点", "打印 1 到 100", "计算两个整数之和", "交换两个变量的值"), answer=0,
+            explanation="树的结构天然是递归的（每个子树都是一棵树），递归遍历最自然；其余问题迭代即可。",
+        ),
+        # ─── 作用域（L3+ 扩充）─────────────────────────────────────
+        Question(
+            problem_id="ps-l3-02", skill_id="python.scope", topic="python.scope",
+            bloom_level=BloomLevel.APPLY, qtype="code", loadings={"P": 1.2},
+            prompt="在代码顶部定义模块级变量 count = 0，再定义函数 step()：用 global 声明修改全局 count，每次调用加 1 并返回新值（第一次返回 1，第二次 2，第三次 3）。",
+            func_name="step",
+            tests=(
+                TestCase(args=(), expected=1),
+                TestCase(args=(), expected=2),
+                TestCase(args=(), expected=3),
+            ),
+            explanation="函数内用 global count 声明后，count += 1 修改的就是模块级变量，且跨调用保持。",
+        ),
+        Question(
+            problem_id="ps-l3-03", skill_id="python.scope", topic="python.scope",
+            bloom_level=BloomLevel.APPLY, qtype="choice", loadings={"K": 1.0, "S": 0.4},
+            prompt="x = 5\ndef f():\n    global x\n    x = x + 1\nf()\nprint(x) 输出什么？",
+            options=("5", "6", "报错", "None"), answer=1,
+            explanation="global 声明让函数内修改的是全局 x，所以 x 变为 6。",
+        ),
+        Question(
+            problem_id="ps-l4-02", skill_id="python.scope", topic="python.scope",
+            bloom_level=BloomLevel.ANALYZE, qtype="choice", loadings={"S": 1.2},
+            prompt="def outer():\n    n = 0\n    def inner():\n        nonlocal n\n        n += 1\n        return n\n    return inner\nf = outer()\n连续调用 f() 三次，第三次的返回值是？",
+            options=("1", "2", "3", "报错"), answer=2,
+            explanation="nonlocal 让 inner 修改外层 outer 的 n，且跨调用保持，三次调用分别返回 1、2、3。",
+        ),
+        Question(
+            problem_id="ps-l4-03", skill_id="python.scope", topic="python.scope",
+            bloom_level=BloomLevel.ANALYZE, qtype="choice", loadings={"S": 1.2, "K": 0.3},
+            prompt="x = 10\ndef f():\n    print(x)\n    x = 5\nf() 会发生什么？",
+            options=("输出 10", "输出 5", "UnboundLocalError", "NameError"), answer=2,
+            explanation="函数内对 x 赋值使 x 成为局部变量，print(x) 时局部 x 尚未赋值，触发 UnboundLocalError。",
+        ),
     ]
     return q
 

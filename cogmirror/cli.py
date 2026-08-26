@@ -47,6 +47,25 @@ def _topic_label(skill_id: str) -> str:
     return TOPIC_LABELS.get(skill_id, skill_id)
 
 
+# --level 参数接受 L1-L6 或 Bloom 层名（大小写不敏感）
+_LEVEL_NAMES = {
+    "L1": BloomLevel.REMEMBER, "REMEMBER": BloomLevel.REMEMBER,
+    "L2": BloomLevel.UNDERSTAND, "UNDERSTAND": BloomLevel.UNDERSTAND,
+    "L3": BloomLevel.APPLY, "APPLY": BloomLevel.APPLY,
+    "L4": BloomLevel.ANALYZE, "ANALYZE": BloomLevel.ANALYZE,
+    "L5": BloomLevel.EVALUATE, "EVALUATE": BloomLevel.EVALUATE,
+    "L6": BloomLevel.CREATE, "CREATE": BloomLevel.CREATE,
+}
+
+
+def _parse_level(raw: str) -> BloomLevel:
+    try:
+        return _LEVEL_NAMES[raw.strip().upper()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(
+            f"无效层级: {raw}（接受 L1-L6 或 Bloom 层名，如 L3 / APPLY）")
+
+
 def _bar(value: float, width: int = 20) -> str:
     filled = int(round(value * width))
     return "█" * filled + "░" * (width - filled) + f" {value:.2f}"
@@ -91,8 +110,17 @@ def read_answer(question) -> str:
 
 
 def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
-                db: Database, n_questions: int) -> BeliefState:
-    questions = bank.all_questions()[:n_questions]
+                db: Database, n_questions: int, topic: str = "",
+                level: BloomLevel | None = None) -> BeliefState:
+    selected = bank.all_questions()
+    if topic:
+        selected = [q for q in selected if q.topic == topic]
+    if level is not None:
+        selected = [q for q in selected if q.bloom_level == level]
+    questions = selected[:n_questions]
+    if not questions:
+        print("\n当前筛选条件下没有题目，直接展示认知地图。\n")
+        return state
     print(f"\n本组共 {len(questions)} 道题。\n")
     for i, q in enumerate(questions, 1):
         print(f"── 题 {i}/{len(questions)} [{q.problem_id}] "
@@ -177,15 +205,23 @@ def print_map(engine: BeliefEngine, state: BeliefState,
         print("\n[伪自信点] 本次无（自评与表现基本校准，或未采集自评）")
 
     liminal = [(tid, tc) for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
+    crossed = [tid for tid, tc in state.C.tc_states.items() if tc.status == "post_liminal"]
     if liminal:
         print("\n[临界概念] 正在跨越中（这不是退步，是学习的正常中间态）：")
         for tid, tc in liminal:
             print(f"  {_tc_display_name(engine, tid)}（跨越进度 {tc.progress:.0%}）")
-    else:
+    if crossed:
+        print("\n[临界概念] 已跨越（恭喜，这些概念你已经真正掌握）：")
+        for tid in crossed:
+            print(f"  {_tc_display_name(engine, tid)}")
+    if not liminal and not crossed:
         print("\n[临界概念] 当前无正在跨越中的概念")
 
     print("\n[一句话建议]")
     print("  " + next_suggestion(engine, state))
+    cmd = practice_command(engine, state)
+    if cmd:
+        print(f"  立刻练习：{cmd}")
     print()
 
 
@@ -205,11 +241,27 @@ def next_suggestion(engine: BeliefEngine, state: BeliefState) -> str:
     return "先完成一组题，系统才能给出有依据的建议。"
 
 
+def practice_command(engine: BeliefEngine, state: BeliefState) -> str:
+    """建议对应的可执行命令；无建议时返回空串（供地图「立刻练习」行）."""
+    liminal = [tid for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
+    if liminal:
+        return f"cogmirror --topic {liminal[0]} --level L3 --questions 3"
+    practiced = engine.l1.all_skills()
+    if practiced:
+        weakest = min(practiced, key=lambda s: engine.get_bkt_mastery(s))
+        if engine.get_bkt_mastery(weakest) < 0.7:
+            return f"cogmirror --topic {weakest} --questions 3"
+    return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cogmirror", description="编程学习认知教练（Phase 0 CLI）")
     parser.add_argument("--user", default="local_user", help="用户 ID（本地单用户默认 local_user）")
     parser.add_argument("--db", default=str(DEFAULT_DB_PATH), help="SQLite 路径")
     parser.add_argument("--questions", type=int, default=10, help="本次答题数量")
+    parser.add_argument("--topic", default="", help="只练指定 topic（如 python.loops）")
+    parser.add_argument("--level", type=_parse_level, default=None,
+                        help="只练指定 Bloom 层级（如 L3 或 APPLY）")
     parser.add_argument("--map-only", action="store_true", help="只看认知地图，不答题")
     args = parser.parse_args(argv)
 
@@ -234,7 +286,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"欢迎回来，{args.user}（已完成 {len(history)} 次作答）。")
 
     if not args.map_only:
-        state = run_session(engine, bank, state, db, args.questions)
+        state = run_session(engine, bank, state, db, args.questions,
+                            topic=args.topic, level=args.level)
 
     covered_bloom = {q.bloom_level for q in bank.all_questions()}
     print_map(engine, state, covered_bloom)

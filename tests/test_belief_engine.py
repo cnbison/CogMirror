@@ -9,6 +9,7 @@ import pytest
 
 from cogmirror.belief_engine import BeliefEngine, Observation
 from cogmirror.belief_state import BeliefState, BloomLevel
+from cogmirror.questions import QuestionBank
 
 
 def make_obs(problem_id: str, skill_id: str, score: float,
@@ -171,6 +172,57 @@ class TestBeliefEngineUpdate:
                 state, make_obs(f"q{i+20}", "python.loops", 1.0, bloom=BloomLevel.APPLY))
         tc = state.C.tc_states["python.loops"]
         assert tc.status == "post_liminal"
+        assert tc.irreversible
+
+    # F10 收口：临界概念三态（pre->liminal->post_liminal）在产品内端到端可达。
+    # 用真实题库 + 真实判分逐题答对全部 L3+，验证每 topic 都能走完整条链。
+    CODE_SOLUTIONS = {
+        "pv-l3-01": "def swap_values(a, b):\n    return (b, a)",
+        "pv-l3-03": "def repeat_word(s):\n    return s * 2",
+        "pl-l3-01": "def sum_to(n):\n    total = 0\n    for i in range(1, n + 1):\n        total += i\n    return total",
+        "pl-l3-02": "def max_of(nums):\n    m = nums[0]\n    for x in nums:\n        if x > m:\n            m = x\n    return m",
+        "pl-l3-03": "def count_even(nums):\n    c = 0\n    for n in nums:\n        if n % 2 == 0:\n            c += 1\n    return c",
+        "pl-l3-04": "def sum_range(a, b):\n    total = 0\n    for i in range(a, b + 1):\n        total += i\n    return total",
+        "pf-l3-01": "def is_even(n):\n    return n % 2 == 0",
+        "pf-l3-02": "def count_vowels(s):\n    return sum(1 for c in s.lower() if c in 'aeiou')",
+        "pf-l3-03": "def first_last(nums):\n    return (nums[0], nums[-1])",
+        "pf-l3-04": "def sum_list(nums):\n    total = 0\n    for n in nums:\n        total += n\n    return total",
+        "pr-l3-01": "def factorial(n):\n    return 1 if n <= 1 else n * factorial(n - 1)",
+        "pr-l3-02": "def fib(n):\n    if n <= 1:\n        return n\n    return fib(n - 1) + fib(n - 2)",
+        "ps-l3-01": ("def make_counter():\n    count = 0\n    def counter():\n        nonlocal count\n        count += 1\n        return count\n    return counter"),
+        "ps-l3-02": "count = 0\ndef step():\n    global count\n    count += 1\n    return count",
+    }
+
+    @pytest.mark.parametrize("topic", [
+        "python.variables", "python.loops", "python.functions",
+        "python.recursion", "python.scope",
+    ])
+    def test_tc_post_liminal_reachable_all_topics_real_bank(self, topic):
+        bank = QuestionBank()
+        engine = BeliefEngine()
+        engine.l2.register_items_bulk(bank.mirt_items())
+        state = engine.create_initial_state("e2e")
+
+        l3_plus = [q for q in bank.by_topic(topic)
+                   if q.bloom_level.value >= BloomLevel.APPLY.value]
+        assert len(l3_plus) >= 6, f"{topic} L3+ 不足 6 道"
+        for q in l3_plus:
+            if q.qtype == "choice":
+                answer = str(q.answer)
+            elif q.qtype == "fill":
+                answer = q.accepted[0]
+            else:
+                answer = self.CODE_SOLUTIONS[q.problem_id]
+            score, details = bank.grade_answer(q, answer)
+            assert score == 1.0, f"{topic} {q.problem_id} 正确解判分错误: {details}"
+            state = engine.update(
+                state, Observation(
+                    skill_id=q.skill_id, problem_id=q.problem_id, score=score,
+                    bloom_level=q.bloom_level, self_confidence=None,
+                    explanation_text="",  # 避免 misconception 关键词误拦 liminal
+                ))
+        tc = state.C.tc_states[topic]
+        assert tc.status == "post_liminal", f"{topic} 未到 post_liminal: {tc.status}"
         assert tc.irreversible
 
     def test_weak_learner_dominant_not_unpracticed_layer(self):
