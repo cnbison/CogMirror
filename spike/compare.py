@@ -167,13 +167,15 @@ def compare_n1(rec: SessionRecord) -> ComparisonReport:
             if topic in covered_topics:
                 dial = _solo_to_dialogue_est(rec, topic)
                 delta = (dial - bank_anchor) if dial is not None else None
+                note = ("对话已覆盖，但评分器未给出 solo 估计"
+                        "（已计入证据不足列表）" if dial is None else "")
                 per_topic.append({
                     "topic": topic,
                     "bank_anchor": bank_anchor,
                     "dialogue_est": dial,
                     "delta": delta,
                     "covered": True,
-                    "note": "",
+                    "note": note,
                 })
             else:
                 per_topic.append({

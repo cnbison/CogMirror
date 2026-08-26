@@ -145,3 +145,28 @@ class TestScoreSession:
         out = score_session(FakeLLM(responder), graph, transcript, exec_results)
         assert out.overall == 0.5
         assert "exec_results" in out.evidence_notes
+
+    def test_covered_topic_without_solo_goes_to_insufficient(self):
+        """对话覆盖到 recursion，但评分器没给 solo——确定性兜底计入 insufficient."""
+
+        def responder(system, user):
+            return json.dumps({
+                "five_d": {"K": 0.5, "P": 0.5, "S": 0.5, "C": 0.5, "X": 0.5},
+                "bloom": {"REMEMBER": 0.5, "UNDERSTAND": 0.5,
+                          "APPLY": 0.5, "ANALYZE": 0.5},
+                "solo": {"loops": 3.0},  # 只有 loops，缺 recursion
+                "overall": 0.5,
+                "insufficient": [],
+            })
+
+        graph = build_graph()
+        transcript = [
+            AnchorTurn(role="assistant", anchor="loops-L1-S1-K", text="q1"),
+            AnchorTurn(role="user", anchor=None, text="a1"),
+            AnchorTurn(role="assistant", anchor="recursion-L1-S1-K", text="q2"),
+            AnchorTurn(role="user", anchor=None, text="a2"),
+        ]
+        out = score_session(FakeLLM(responder), graph, transcript)
+        assert "solo:recursion" in out.insufficient
+        assert "solo:loops" not in out.insufficient
+        assert "missing_solo" in out.evidence_notes

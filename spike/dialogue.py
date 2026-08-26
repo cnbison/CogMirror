@@ -140,18 +140,34 @@ def extract_json_object(raw: str) -> str | None:
     return None
 
 
+SKIP = object()  # default_ask 返回它表示用户显式跳过本题
+
+
 def default_ask(node: GraphNode) -> str:
-    """从 stdin 读用户输入：CODE 节点多行（END 结束），其余单行."""
+    """从 stdin 读用户输入：CODE 节点多行（END 结束），其余单行.
+
+    作答为空重问（防误回车把答案串位到下一题）；输入 skip（CODE 节点：
+    没写代码直接 END）返回 SKIP，引擎按跳过处理。
+    """
     if node.probe_kind == ProbeKind.CODE:
-        print("（输入代码，单独一行输入 END 结束）")
+        print("（输入代码，单独一行输入 END 结束；不会写可输入 skip）")
         lines = []
         while True:
             line = input()
             if line.strip() == "END":
                 break
             lines.append(line)
+        if not "".join(lines).strip():
+            return SKIP
         return "\n".join(lines)
-    return input().strip()
+    while True:
+        answer = input().strip()
+        if not answer:
+            print("（输入为空，请作答；若想跳过本题，输入 skip）")
+            continue
+        if answer.lower() == "skip":
+            return SKIP
+        return answer
 
 
 def _parse_interviewer_response(raw: str) -> dict | None:
@@ -241,6 +257,11 @@ class DialogueEngine:
 
             self._emit_question(question)
             answer = ask(node)
+
+            if answer is SKIP:
+                # 用户显式跳过（或代码没写）——节点计入 skipped，不算覆盖
+                state.skipped_anchors.append(node.node_id)
+                continue
 
             state.transcript.append(
                 AnchorTurn(role="assistant", anchor=anchor, text=question))

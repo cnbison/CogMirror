@@ -7,6 +7,7 @@ import pytest
 from cogmirror.questions import QuestionBank
 
 from spike.dialogue import (
+    SKIP,
     DialogueEngine,
     _parse_interviewer_response,
     extract_json_object,
@@ -212,6 +213,19 @@ class TestTranscriptInvariant:
         state = engine.run("u1", ask=lambda node: "答案")
         anchored = {t.anchor for t in state.transcript if t.anchor}
         assert anchored == state.covered_nodes
+
+
+class TestUserSkip:
+    def test_skip_marks_node_skipped_not_covered(self, graph, bank):
+        """用户显式 skip：节点计入 skipped，不算覆盖，其余节点照常."""
+        engine = _engine(graph, bank, _valid_responder())
+        state = engine.run("u1", ask=lambda node: SKIP
+                           if node.node_id == "loops-L1-S1-K" else "答案")
+        assert "loops-L1-S1-K" in state.skipped_anchors
+        assert "loops-L1-S1-K" not in state.covered_nodes
+        assert {"loops-L2-S2-C", "loops-L3-S3-P", "loops-L4-S4-S"} <= state.covered_nodes
+        # 跳过的节点不产生空 user turn，也不产生面试官轮次
+        assert not any(t.role == "user" and not t.text for t in state.transcript)
 
 
 class TestRoundLimit:

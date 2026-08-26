@@ -68,7 +68,10 @@ GRADER_ROLE: str = (
     "能否自我修正。\n"
     "5. X 判据（元认知）：是否有『预测->行动->结果->比较->修正』闭环、自评是否校准、"
     "是否表现出犹豫/自我监控/修正行为。\n"
-    "6. 只输出一个 JSON 对象，直接输出、不要放进代码块，严格按下面模板（键名与嵌套"
+    "6. 对话中实际讨论过的每个 topic 都必须给出 solo 估计；某个 topic 证据不足"
+    "判断不出来时，把该 topic 名写进 insufficient（如 \"solo: recursion\"），不要"
+    "省略——省略会被当成『该 topic 没被对话覆盖』。\n"
+    "7. 只输出一个 JSON 对象，直接输出、不要放进代码块，严格按下面模板（键名与嵌套"
     "结构必须一致，数值在 [0,1]，solo 在 [1,5]）：\n"
     "{\n"
     '  "five_d": {"K": 0.5, "P": 0.4, "S": 0.5, "C": 0.5, "X": 0.5},\n'
@@ -248,5 +251,15 @@ def score_session(llm: LLMClient, graph: Graph,
         out.evidence_notes.setdefault(
             "exec_results",
             f"{len(exec_results)} 个代码执行结果已作为 P 维度客观证据提供",
+        )
+    # 确定性兜底（不依赖 LLM 自觉）：对话覆盖到的 topic 必须有 solo 估计，否则计 insufficient
+    covered_topics = {t.anchor.split("-")[0] for t in transcript if t.anchor}
+    missing_solo = sorted(covered_topics - set(out.solo))
+    if missing_solo:
+        out.insufficient.extend(f"solo:{t}" for t in missing_solo)
+        out.evidence_notes.setdefault(
+            "missing_solo",
+            "对话覆盖但评分器未给 solo 估计的 topic 已计入 insufficient: "
+            + ", ".join(missing_solo),
         )
     return out
