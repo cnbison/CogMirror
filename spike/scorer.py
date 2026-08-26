@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from cogmirror.belief_state import BloomLevel
 
 from .dialogue import AnchorTurn, ExecResult, extract_json_object
-from .graph import DimensionId, Graph
+from .graph import TOPIC_ID_TO_SHORT, DimensionId, Graph
 from .llm import LLMClient
 
 DIM_ORDER = ["K", "P", "S", "C", "X"]
@@ -252,8 +252,22 @@ def score_session(llm: LLMClient, graph: Graph,
             "exec_results",
             f"{len(exec_results)} 个代码执行结果已作为 P 维度客观证据提供",
         )
-    # 确定性兜底（不依赖 LLM 自觉）：对话覆盖到的 topic 必须有 solo 估计，否则计 insufficient
+    # 确定性兜底（不依赖 LLM 自觉）：
+    # 1) solo 归一化到短 topic 名，并裁剪掉对话未覆盖的 topic（防模型脑补）；
+    # 2) 对话覆盖到但缺 solo 估计的 topic 计入 insufficient。
     covered_topics = {t.anchor.split("-")[0] for t in transcript if t.anchor}
+    normalized_solo: dict[str, float] = {}
+    for k, v in out.solo.items():
+        normalized_solo[TOPIC_ID_TO_SHORT.get(k, k)] = v
+    extra_solo = sorted(set(normalized_solo) - covered_topics)
+    for t in extra_solo:
+        normalized_solo.pop(t)
+    out.solo = normalized_solo
+    if extra_solo:
+        out.evidence_notes.setdefault(
+            "pruned_solo",
+            "评分器输出了对话未覆盖 topic 的 solo 估计，已裁剪: " + ", ".join(extra_solo),
+        )
     missing_solo = sorted(covered_topics - set(out.solo))
     if missing_solo:
         out.insufficient.extend(f"solo:{t}" for t in missing_solo)

@@ -23,7 +23,7 @@ from pathlib import Path
 from cogmirror.questions import QuestionBank
 
 from .compare import compare_n1, render_comparison
-from .dialogue import DialogueEngine
+from .dialogue import SKIP, DialogueEngine
 from .graph import build_graph, DimensionId, Graph, TOPIC_SHORT_TO_ID
 from .llm import LLMConfig, OpenAICompatClient, SpikeConfigError
 from .protocol import (
@@ -59,20 +59,37 @@ def _resolve_topics(topics_arg: list[str]) -> list[str]:
     return ids
 
 
-def _read_bank_answer(question) -> str:
+def _read_bank_answer(question):
+    """读一道题库题作答；输入为空重问（防误回车）；输入 skip 返回 SKIP（该题不计入锚点）."""
     if question.qtype == "choice":
         for i, opt in enumerate(question.options):
             print(f"  {i}. {opt}")
-        return input("输入选项编号: ").strip()
+        while True:
+            ans = input("输入选项编号: ").strip()
+            if not ans:
+                print("（输入为空，请作答；若想跳过本题，输入 skip）")
+                continue
+            if ans.lower() == "skip":
+                return SKIP
+            return ans
     if question.qtype == "fill":
-        return input("输入你的答案: ").strip()
-    print("（输入代码，单独一行输入 END 结束）")
+        while True:
+            ans = input("输入你的答案: ").strip()
+            if not ans:
+                print("（输入为空，请作答；若想跳过本题，输入 skip）")
+                continue
+            if ans.lower() == "skip":
+                return SKIP
+            return ans
+    print("（输入代码，单独一行输入 END 结束；不会写可输入 skip）")
     lines = []
     while True:
         line = input()
         if line.strip() == "END":
             break
         lines.append(line)
+    if not "".join(lines).strip():
+        return SKIP
     return "\n".join(lines)
 
 
@@ -86,7 +103,11 @@ def _collect_bank_anchors(bank: QuestionBank, topics: list[str]) -> GroundTruthA
             continue
         print(f"\n[{q.problem_id}] ({q.topic} / {q.bloom_level.name})")
         print(q.prompt)
-        answers[q.problem_id] = _read_bank_answer(q)
+        ans = _read_bank_answer(q)
+        if ans is SKIP:
+            print("（已跳过，本题不计入锚点）")
+            continue
+        answers[q.problem_id] = ans
     return build_bank_anchors(bank, answers)
 
 

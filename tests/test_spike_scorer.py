@@ -170,3 +170,29 @@ class TestScoreSession:
         assert "solo:recursion" in out.insufficient
         assert "solo:loops" not in out.insufficient
         assert "missing_solo" in out.evidence_notes
+
+    def test_extra_solo_topic_pruned(self):
+        """评分器脑补未覆盖 topic 的 solo（如 functions）——确定性裁剪掉."""
+
+        def responder(system, user):
+            return json.dumps({
+                "five_d": {"K": 0.5, "P": 0.5, "S": 0.5, "C": 0.5, "X": 0.5},
+                "bloom": {"REMEMBER": 0.5, "UNDERSTAND": 0.5,
+                          "APPLY": 0.5, "ANALYZE": 0.5},
+                "solo": {"loops": 4.0, "functions": 3.0},  # functions 未覆盖
+                "overall": 0.5,
+                "insufficient": [],
+            })
+
+        graph = build_graph()
+        transcript = [
+            AnchorTurn(role="assistant", anchor="loops-L1-S1-K", text="q1"),
+            AnchorTurn(role="user", anchor=None, text="a1"),
+            AnchorTurn(role="assistant", anchor="recursion-L1-S1-K", text="q2"),
+            AnchorTurn(role="user", anchor=None, text="a2"),
+        ]
+        out = score_session(FakeLLM(responder), graph, transcript)
+        assert "functions" not in out.solo
+        assert out.solo.get("loops") == 4.0
+        assert "solo:recursion" in out.insufficient
+        assert "pruned_solo" in out.evidence_notes
