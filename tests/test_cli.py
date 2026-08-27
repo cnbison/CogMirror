@@ -278,16 +278,16 @@ def test_x_dimension_annotated_unmeasured(monkeypatch, tmp_path):
     assert "暂未测量" in out
 
 
-def test_bloom_l56_annotated(monkeypatch, tmp_path):
-    # 题库最高只到 L4，L5/L6 无对应题目 -> 标注而非显示永远不变的 0.50
+def test_bloom_all_six_layers_light_up(monkeypatch, tmp_path):
+    # L5/L6 题库补齐（2026-08-27）：六层全有题 -> 地图六层全亮，不再标注"暂无对应层级题目"
     _, out = run_cli(
         monkeypatch, tmp_path,
         answers=["80\n", "1\n", "90\n", "2\n"],
         args=["--questions", "2"],
     )
-    assert "L5 评价" in out
-    assert "L6 创造" in out
-    assert "暂无对应层级题目" in out
+    for label in ("L1 记忆", "L2 理解", "L3 应用", "L4 分析", "L5 评价", "L6 创造"):
+        assert label in out
+    assert "暂无对应层级题目" not in out
 
 
 def test_tc_display_name_uses_state_machine_library():

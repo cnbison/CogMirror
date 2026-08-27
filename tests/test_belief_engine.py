@@ -191,6 +191,11 @@ class TestBeliefEngineUpdate:
         "pr-l3-02": "def fib(n):\n    if n <= 1:\n        return n\n    return fib(n - 1) + fib(n - 2)",
         "ps-l3-01": ("def make_counter():\n    count = 0\n    def counter():\n        nonlocal count\n        count += 1\n        return count\n    return counter"),
         "ps-l3-02": "count = 0\ndef step():\n    global count\n    count += 1\n    return count",
+        "pv-l6-01": "def dedupe(items):\n    seen = set()\n    out = []\n    for x in items:\n        if x not in seen:\n            seen.add(x)\n            out.append(x)\n    return out",
+        "pl-l6-01": 'def make_star_triangle(n):\n    return "\\n".join("*" * i for i in range(1, n + 1))',
+        "pf-l6-01": "def apply_twice(f, x):\n    return f(f(x))",
+        "pr-l6-01": "def reverse_str(s):\n    if len(s) <= 1:\n        return s\n    return reverse_str(s[1:]) + s[0]",
+        "ps-l6-01": "def make_adder(n):\n    def adder(x):\n        return n + x\n    return adder",
     }
 
     @pytest.mark.parametrize("topic", [
@@ -237,6 +242,17 @@ class TestBeliefEngineUpdate:
                     state, make_obs(f"q-{level.name}-{i}", "python.loops", 0.0, bloom=level))
         assert state.bloom_profile.dominant_layer.value <= BloomLevel.ANALYZE.value
         assert state.bloom_profile.dominant_layer != BloomLevel.EVALUATE
+
+    def test_l6_practice_dominant_reaches_create(self):
+        # L6 补齐后正向路径：只练 L6 创造题且全对 -> 主导层级能到 CREATE
+        #（与上面的"未练 L6 不反超"守卫互补：covered_layers 只从有观测的层选）
+        engine = BeliefEngine()
+        state = engine.create_initial_state("u1")
+        for i in range(3):
+            state = engine.update(
+                state, make_obs(f"q-c{i}", "python.scope", 1.0, bloom=BloomLevel.CREATE))
+        assert BloomLevel.CREATE in state.bloom_profile.covered_layers
+        assert state.bloom_profile.dominant_layer == BloomLevel.CREATE
 
     def test_illusory_confidence_detected(self):
         engine = BeliefEngine()

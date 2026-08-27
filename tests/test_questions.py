@@ -27,6 +27,20 @@ class TestBank:
         assert levels >= {BloomLevel.REMEMBER, BloomLevel.UNDERSTAND,
                           BloomLevel.APPLY, BloomLevel.ANALYZE}
 
+    def test_covers_all_six_bloom_levels(self, bank):
+        """L5/L6 补齐（2026-08-27）：六层全链覆盖，认知地图六层全亮."""
+        levels = {q.bloom_level for q in bank.all_questions()}
+        assert levels == set(BloomLevel)
+
+    def test_each_topic_has_l5_and_l6(self, bank):
+        for topic in ("python.variables", "python.loops", "python.functions",
+                      "python.recursion", "python.scope"):
+            tq = bank.by_topic(topic)
+            l5 = sum(1 for q in tq if q.bloom_level == BloomLevel.EVALUATE)
+            l6 = sum(1 for q in tq if q.bloom_level == BloomLevel.CREATE)
+            assert l5 >= 1, f"{topic} 缺 L5 题"
+            assert l6 >= 1, f"{topic} 缺 L6 题"
+
     def test_mirt_items_loadings_differ(self, bank):
         """载荷矩阵必须维度间可分，否则 5D 估计退化（Phase 0 实测教训）."""
         items = bank.mirt_items()
@@ -127,6 +141,56 @@ class TestGrading:
         bad = "def make_counter():\n    return lambda: 1"
         score, details = bank.grade_answer(q, bad)
         assert score == 0.0
+
+    def test_make_adder_closure_factory(self, bank):
+        """L6 闭包工厂题：返回值是函数，走专用判分器."""
+        q = bank.get("ps-l6-01")
+        good = (
+            "def make_adder(n):\n"
+            "    def adder(x):\n"
+            "        return n + x\n"
+            "    return adder"
+        )
+        score, _ = bank.grade_answer(q, good)
+        assert score == 1.0
+        bad = "def make_adder(n):\n    return lambda x: x"
+        score, details = bank.grade_answer(q, bad)
+        assert score == 0.0
+
+    @pytest.mark.parametrize(
+        ("problem_id", "correct_idx"),
+        [
+            ("pv-l5-01", 2),
+            ("pl-l5-01", 1),
+            ("pf-l5-01", 2),
+            ("pr-l5-01", 1),
+            ("ps-l5-01", 3),
+        ],
+    )
+    def test_l5_choice_questions_grade(self, bank, problem_id, correct_idx):
+        q = bank.get(problem_id)
+        assert q is not None, f"{problem_id} 不存在"
+        assert q.qtype == "choice" and q.bloom_level == BloomLevel.EVALUATE
+        assert bank.grade_answer(q, str(correct_idx))[0] == 1.0
+        assert bank.grade_answer(q, str((correct_idx + 1) % len(q.options)))[0] == 0.0
+
+    @pytest.mark.parametrize(
+        ("problem_id", "correct_code"),
+        [
+            ("pv-l6-01", 'def dedupe(items):\n    seen = set()\n    out = []\n    for x in items:\n        if x not in seen:\n            seen.add(x)\n            out.append(x)\n    return out'),
+            ("pl-l6-01", 'def make_star_triangle(n):\n    return "\\n".join("*" * i for i in range(1, n + 1))'),
+            ("pf-l6-01", "def apply_twice(f, x):\n    return f(f(x))"),
+            ("pr-l6-01", "def reverse_str(s):\n    if len(s) <= 1:\n        return s\n    return reverse_str(s[1:]) + s[0]"),
+            ("ps-l6-01", "def make_adder(n):\n    def adder(x):\n        return n + x\n    return adder"),
+        ],
+    )
+    def test_l6_code_questions_grade_full(self, bank, problem_id, correct_code):
+        """L6 创造题（2026-08-27 补齐）：已知正确解必须判 1.0."""
+        q = bank.get(problem_id)
+        assert q is not None, f"{problem_id} 不存在"
+        assert q.qtype == "code" and q.bloom_level == BloomLevel.CREATE
+        score, details = bank.grade_answer(q, correct_code)
+        assert score == 1.0, f"{problem_id} 正确解判分错误: {details}"
 
     def test_runtime_exception_in_tests(self, bank):
         q = bank.get("pf-l3-01")

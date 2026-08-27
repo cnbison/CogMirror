@@ -27,12 +27,14 @@ from .mirt import MIRTItemParams
 
 DIM_CHARS = ("K", "P", "S", "C", "X")
 
-# Bloom 层 -> MIRT 难度（L1 易，L4 难）
+# Bloom 层 -> MIRT 难度（L1 易，L6 难；2026-08-27 补 L5/L6 打通六层全链）
 BLOOM_DIFFICULTY = {
     BloomLevel.REMEMBER: -1.0,
     BloomLevel.UNDERSTAND: -0.3,
     BloomLevel.APPLY: 0.3,
     BloomLevel.ANALYZE: 1.0,
+    BloomLevel.EVALUATE: 1.6,
+    BloomLevel.CREATE: 2.2,
 }
 
 
@@ -567,6 +569,124 @@ def _bank() -> list[Question]:
             options=("输出 10", "输出 5", "UnboundLocalError", "NameError"), answer=2,
             explanation="函数内对 x 赋值使 x 成为局部变量，print(x) 时局部 x 尚未赋值，触发 UnboundLocalError。",
         ),
+        # ─── L5/L6 补齐（2026-08-27：打通 Bloom 六层全链）────────────
+        # L5 评价 = choice（判断写法/取舍的优劣，S 载荷）；L6 创造 = code（P 载荷）。
+        # 追加在末尾以保持原有题目顺序（CLI 默认取 selected[:n]）。
+        Question(
+            problem_id="pv-l5-01", skill_id="python.variables", topic="python.variables",
+            bloom_level=BloomLevel.EVALUATE, qtype="choice", loadings={"S": 1.2, "K": 0.4},
+            prompt="要交换两个变量的值（a、b 均为数字），下列哪种写法最不推荐（有隐蔽问题）？",
+            options=(
+                "a, b = b, a",
+                "tmp = a; a = b; b = tmp",
+                "a = a + b; b = a - b; a = a - b（用加减法交换）",
+                "a, b = (b, a)",
+            ), answer=2,
+            explanation="加减法交换只在数值且无精度问题时成立：浮点数会引入精度误差、数值大时可能溢出，可读性也差。Python 原生多重赋值 a, b = b, a 既简洁又无副作用。",
+        ),
+        Question(
+            problem_id="pl-l5-01", skill_id="python.loops", topic="python.loops",
+            bloom_level=BloomLevel.EVALUATE, qtype="choice", loadings={"S": 1.2, "K": 0.3},
+            prompt="已知要精确执行 N 次循环，选 for i in range(N) 而不是 while 的最主要原因是？",
+            options=(
+                "for 的执行速度更快",
+                "for 自带计数变量的初始化与更新，少了一个手动维护出错的点（如忘更新导致死循环）",
+                "while 不能用于数字循环",
+                "for 只能搭配 range 使用",
+            ), answer=1,
+            explanation="已知次数时 for 更安全：迭代变量的初始化与步进由循环结构管理，避开'忘更新计数变量→死循环'这类错误。while 适合次数未知、靠条件退出（如读输入直到 EOF）的场景。",
+        ),
+        Question(
+            problem_id="pf-l5-01", skill_id="python.functions", topic="python.functions",
+            bloom_level=BloomLevel.EVALUATE, qtype="choice", loadings={"S": 1.1, "K": 0.5},
+            prompt="定义一个返回计算结果的函数 calc(n) 时，为什么应该用 return 而不是在函数里 print 结果？",
+            options=(
+                "函数里不能同时使用 print 和 return",
+                "return 的代码执行得更快",
+                "return 把结果交给调用方继续使用（赋值、传参），print 只是输出副作用，结果无法复用",
+                "return 只能返回整数",
+            ), answer=2,
+            explanation="return 让函数成为可组合的'计算单元'：结果可赋值、可传参、可测试；print 只是把值显示到屏幕，把 print 当返回值用的函数无法被调用方继续计算。",
+        ),
+        Question(
+            problem_id="pr-l5-01", skill_id="python.recursion", topic="python.recursion",
+            bloom_level=BloomLevel.EVALUATE, qtype="choice", loadings={"S": 1.2, "K": 0.3},
+            prompt="关于递归与循环的选择，下列哪个说法正确？",
+            options=(
+                "递归总是比循环更高效，因为代码更短",
+                "递归用调用栈自然表达'自己调用自己'，适合树/嵌套结构，但有栈开销与深度限制",
+                "递归不需要基准情形，靠解释器兜底",
+                "递归能解决的问题循环一定不能解决",
+            ), answer=1,
+            explanation="递归贴近问题结构（如遍历树），但每层调用占栈内存，递归过深会 RecursionError；深递归通常改写为显式栈或循环。",
+        ),
+        Question(
+            problem_id="ps-l5-01", skill_id="python.scope", topic="python.scope",
+            bloom_level=BloomLevel.EVALUATE, qtype="choice", loadings={"S": 1.2, "K": 0.4},
+            prompt="关于函数与全局变量，Python 社区推荐的最佳实践是？",
+            options=(
+                "在函数里尽量多用 global 直接修改全局变量，省去传参",
+                "把所有变量都定义成全局变量，方便任何函数访问",
+                "函数内永远不能读取任何全局变量",
+                "需要共享/修改的状态尽量作为参数传入，或用类/闭包封装，避免滥用 global",
+            ), answer=3,
+            explanation="滥用 global 会让函数依赖外部可变状态、顺序敏感、难以测试与复用。读取全局常量没有问题；需要修改共享状态时，优先用参数/类/闭包封装。",
+        ),
+        Question(
+            problem_id="pv-l6-01", skill_id="python.variables", topic="python.variables",
+            bloom_level=BloomLevel.CREATE, qtype="code", loadings={"P": 1.2, "S": 0.4},
+            prompt="定义函数 dedupe(items)，返回去重后的新列表，保持元素第一次出现的顺序（如 dedupe([3, 1, 3, 2, 1]) 返回 [3, 1, 2]）。",
+            func_name="dedupe",
+            tests=(
+                TestCase(args=([3, 1, 3, 2, 1],), expected=[3, 1, 2]),
+                TestCase(args=([],), expected=[]),
+                TestCase(args=(["a", "b", "a", "c"],), expected=["a", "b", "c"]),
+            ),
+            explanation="用集合 seen 记录已出现元素，遍历时第一次遇到才加入结果——既去重又保持原顺序。",
+        ),
+        Question(
+            problem_id="pl-l6-01", skill_id="python.loops", topic="python.loops",
+            bloom_level=BloomLevel.CREATE, qtype="code", loadings={"P": 1.2, "S": 0.3},
+            prompt="定义函数 make_star_triangle(n)，返回 n 行由 * 组成的直角三角形（第 i 行 i 个 *），行间用换行分隔。如 make_star_triangle(3) 返回 '*\\n**\\n***'。",
+            func_name="make_star_triangle",
+            tests=(
+                TestCase(args=(3,), expected="*\n**\n***"),
+                TestCase(args=(1,), expected="*"),
+            ),
+            explanation="每行 '*'.repeat(i)（或 '*' * i），再用换行拼接各行。",
+        ),
+        Question(
+            problem_id="pf-l6-01", skill_id="python.functions", topic="python.functions",
+            bloom_level=BloomLevel.CREATE, qtype="code", loadings={"P": 1.1, "S": 0.5},
+            prompt="定义函数 apply_twice(f, x)，返回 f(f(x))——把 x 传给 f，再把结果传给 f 一次。如 apply_twice(lambda n: n + 1, 5) 返回 7。",
+            func_name="apply_twice",
+            tests=(
+                TestCase(args=(lambda n: n + 1, 5), expected=7),
+                TestCase(args=(lambda s: s.upper(), "ab"), expected="AB"),
+                TestCase(args=(lambda n: n * n, 3), expected=81),
+            ),
+            explanation="函数是一等公民，可作为参数传递：return f(f(x)) 先调一次再调一次。",
+        ),
+        Question(
+            problem_id="pr-l6-01", skill_id="python.recursion", topic="python.recursion",
+            bloom_level=BloomLevel.CREATE, qtype="code", loadings={"P": 1.2},
+            prompt="用递归定义函数 reverse_str(s)，返回字符串反转（如 reverse_str('abc') 返回 'cba'）。",
+            func_name="reverse_str",
+            tests=(
+                TestCase(args=("abc",), expected="cba"),
+                TestCase(args=("",), expected=""),
+                TestCase(args=("a",), expected="a"),
+                TestCase(args=("hello",), expected="olleh"),
+            ),
+            explanation="基准情形 len(s) <= 1 直接返回 s；否则把首字符移到尾部：reverse_str(s[1:]) + s[0]。",
+        ),
+        Question(
+            problem_id="ps-l6-01", skill_id="python.scope", topic="python.scope",
+            bloom_level=BloomLevel.CREATE, qtype="code", loadings={"P": 1.1, "S": 0.5},
+            prompt="定义函数 make_adder(n)，返回一个把参数加上 n 的函数（闭包）。如 add5 = make_adder(5); add5(3) 返回 8。",
+            func_name="make_adder",
+            explanation="闭包捕获外层参数 n，返回的函数在调用时把 n 加到自己参数上（n 只读不改，无需 nonlocal）。",
+        ),
     ]
     return q
 
@@ -581,6 +701,21 @@ def _grade_make_counter(user_code: str) -> tuple[float, list[dict]]:
         results = [counter(), counter(), counter()]
         ok = results == [1, 2, 3]
         return (1.0 if ok else 0.0), [{"expected": [1, 2, 3], "got": results, "passed": ok}]
+    except Exception as e:  # noqa: BLE001
+        return 0.0, [{"error": f"{type(e).__name__}: {e}"}]
+
+
+# make_adder 是闭包工厂题，返回值是函数，测试用例结构特殊，单独处理
+def _grade_make_adder(user_code: str) -> tuple[float, list[dict]]:
+    ns: dict[str, Any] = {"__builtins__": __builtins__}
+    try:
+        exec(user_code, ns, ns)  # noqa: S102
+        make = ns.get("make_adder")
+        add5 = make(5)
+        add10 = make(10)
+        results = [add5(3), add5(-1), add10(7)]
+        ok = results == [8, 4, 17]
+        return (1.0 if ok else 0.0), [{"expected": [8, 4, 17], "got": results, "passed": ok}]
     except Exception as e:  # noqa: BLE001
         return 0.0, [{"error": f"{type(e).__name__}: {e}"}]
 
@@ -621,4 +756,6 @@ class QuestionBank:
         """判分入口；闭包题走专用校验."""
         if question.problem_id == "ps-l3-01":
             return _grade_make_counter(user_answer)
+        if question.problem_id == "ps-l6-01":
+            return _grade_make_adder(user_answer)
         return grade(question, user_answer, timeout_sec=timeout_sec)
