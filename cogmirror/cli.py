@@ -32,6 +32,9 @@ BLOOM_LABELS = [
     ("create", "L6 创造"),
 ]
 
+# 主导层级显示用中文层名（英文枚举名如 APPLY 对非开发者不友好）
+BLOOM_LAYER_LABELS = {BloomLevel[field.upper()]: label for field, label in BLOOM_LABELS}
+
 # topic 中文短名（一句话建议用）。题库 5 个 topic 静态不变，与
 # content/threshold_concepts.py / tc.DEFAULT_TC_LIBRARY 的 key 对应。
 TOPIC_LABELS = {
@@ -67,9 +70,20 @@ def _parse_level(raw: str) -> BloomLevel:
             f"无效层级: {raw}（接受 L1-L6 或 Bloom 层名，如 L3 / APPLY）")
 
 
+def _use_color() -> bool:
+    """仅交互终端用 ANSI 配色；管道/测试（非 tty）保持纯文本."""
+    return sys.stdout.isatty()
+
+
 def _bar(value: float, width: int = 20) -> str:
     filled = int(round(value * width))
-    return "█" * filled + "░" * (width - filled) + f" {value:.2f}"
+    bar = "█" * filled + "░" * (width - filled)
+    num = f"{value:.0%}"
+    if not _use_color():
+        return f"{bar} {num}"
+    # 掌握概率档位配色：>=80% 绿（良好）/ >=60% 黄（中间）/ 其它 红（薄弱）
+    code = "32" if value >= 0.8 else ("33" if value >= 0.6 else "31")
+    return f"\033[{code}m{bar} {num}\033[0m"
 
 
 def _tc_display_name(engine: BeliefEngine, tid: str) -> str:
@@ -189,8 +203,14 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
         print(f"── 题 {i}/{len(questions)} [{q.problem_id}] "
               f"({q.topic} / {q.bloom_level.name}) ──")
         print(q.prompt)
-        self_conf = ask_self_confidence()
-        answer = read_answer(q)
+        try:
+            self_conf = ask_self_confidence()
+            answer = read_answer(q)
+        except EOFError:
+            # 输入流结束（Ctrl-D / 脚本输入耗尽）——提前结束，已答的题都保存过，
+            # 不再追问，直接进地图；否则会吐一屏 traceback（自测发现）
+            print("\n（输入已结束，提前结束本次答题——已答的题都已保存）")
+            break
         score, details = bank.grade_answer(q, answer)
         print(f"得分: {score:.2f}" + ("（部分正确）" if 0.0 < score < 1.0 else ""))
         if details:
@@ -231,6 +251,7 @@ def print_map(engine: BeliefEngine, state: BeliefState,
     print("\n" + "═" * 56)
     print("你的认知地图")
     print("═" * 56)
+    print("（怎么看：每行条形 = 该维度的掌握概率，越接近 100% 越稳；作答越多，数值越准）")
 
     print("\n[整体解读]")
     print("  " + map_interpretation(engine, state))
@@ -258,14 +279,14 @@ def print_map(engine: BeliefEngine, state: BeliefState,
         print(f"  {dim} {label:<16} {_bar(d.mastery_prob)}")
 
     covered_bloom = covered_bloom or set(BloomLevel)
-    print("\n[Bloom 六层分布]")
+    print("\n[Bloom 六层分布]（各层掌握概率）")
     for field, label in BLOOM_LABELS:
         if BloomLevel[field.upper()] not in covered_bloom:
             print(f"  {label}  （暂无对应层级题目，暂未测量）")
             continue
         print(f"  {label}  {_bar(getattr(state.bloom_profile, field))}")
     if state.bloom_profile.covered_layers:
-        print(f"  当前主导层级: {state.bloom_profile.dominant_layer.name}")
+        print(f"  当前主导层级: {BLOOM_LAYER_LABELS[state.bloom_profile.dominant_layer]}")
     else:
         print("  当前主导层级: 暂未测量（尚无作答数据）")
 

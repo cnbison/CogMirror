@@ -603,3 +603,54 @@ def test_delete_eof_is_cancel(monkeypatch, tmp_path):
     assert code == 0
     assert "已取消" in out
     assert len(Database(db_path).load_responses("t1")) == 2
+
+
+# ── 认知地图可读性/呈现优化（2026-08-27）───────────────────────────
+
+
+def test_map_has_reading_guide_and_percent(monkeypatch, tmp_path):
+    # 标题下读图说明 + 数值改百分比；Bloom 标题补语义
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n", "90\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    assert "（怎么看：每行条形" in out
+    assert "[Bloom 六层分布]（各层掌握概率）" in out
+
+
+def test_dominant_layer_shows_chinese_label(monkeypatch, tmp_path):
+    # 主导层级显示中文层名（L2 理解）而非英文枚举名（UNDERSTAND）
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n", "90\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    assert "当前主导层级: L2 理解" in out
+    assert "当前主导层级: UNDERSTAND" not in out
+
+
+def test_bar_shows_percent_plain_when_not_tty(monkeypatch):
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+    assert cli._bar(0.62).endswith("62%")
+    assert "\x1b[" not in cli._bar(0.9)
+
+
+def test_bar_colors_by_tier_when_tty(monkeypatch):
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    assert "\x1b[32m" in cli._bar(0.9)   # >=80% 绿
+    assert "\x1b[33m" in cli._bar(0.7)   # >=60% 黄
+    assert "\x1b[31m" in cli._bar(0.4)   # <60% 红
+    assert "\x1b[0m" in cli._bar(0.9)    # 复位
+
+
+def test_session_eof_midway_ends_gracefully(monkeypatch, tmp_path):
+    # 输入流中途结束（EOF）：提前结束答题、不吐 traceback，仍渲染地图
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n"],   # 只够答 1 题，第 2 题自评处 EOF
+        args=["--questions", "3"],
+    )
+    assert "输入已结束" in out
+    assert "Traceback" not in out
+    assert "你的认知地图" in out
