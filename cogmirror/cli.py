@@ -241,17 +241,31 @@ def next_suggestion(engine: BeliefEngine, state: BeliefState) -> str:
     return "先完成一组题，系统才能给出有依据的建议。"
 
 
-def practice_command(engine: BeliefEngine, state: BeliefState) -> str:
-    """建议对应的可执行命令；无建议时返回空串（供地图「立刻练习」行）."""
+def suggested_practice(engine: BeliefEngine, state: BeliefState) -> tuple[str, BloomLevel | None] | None:
+    """返回建议练习目标 (topic, level)；无可执行建议时返回 None.
+
+    level 为 None 表示不限层级（基础题巩固）。与 next_suggestion 决策一致：
+    优先正在 liminal 的概念（巩固应用题 L3），否则练过且 BKT 最弱的 topic。
+    """
     liminal = [tid for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
     if liminal:
-        return f"cogmirror --topic {liminal[0]} --level L3 --questions 3"
+        return (liminal[0], BloomLevel.APPLY)
     practiced = engine.l1.all_skills()
     if practiced:
         weakest = min(practiced, key=lambda s: engine.get_bkt_mastery(s))
         if engine.get_bkt_mastery(weakest) < 0.7:
-            return f"cogmirror --topic {weakest} --questions 3"
-    return ""
+            return (weakest, None)
+    return None
+
+
+def practice_command(engine: BeliefEngine, state: BeliefState) -> str:
+    """建议对应的可执行命令；无建议时返回空串（供地图「立刻练习」行）."""
+    target = suggested_practice(engine, state)
+    if target is None:
+        return ""
+    topic, level = target
+    level_part = f" --level L{level.value}" if level is not None else ""
+    return f"cogmirror --topic {topic}{level_part} --questions 3"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -291,6 +305,24 @@ def main(argv: list[str] | None = None) -> int:
 
     covered_bloom = {q.bloom_level for q in bank.all_questions()}
     print_map(engine, state, covered_bloom)
+
+    # 按建议直达练习：地图末尾问是否继续练建议的题组，直到无建议或用户拒绝。
+    # 一轮练习后重渲染地图（liminal 概念可能因此跨过），状态经 db 持久化。
+    while True:
+        target = suggested_practice(engine, state)
+        if target is None:
+            break
+        topic, level = target
+        level_txt = "的 L3 题" if level is not None else "的基础题"
+        try:
+            ans = input(f"按建议现在练 3 道「{_topic_label(topic)}」{level_txt}吗？[y/N] ").strip().lower()
+        except EOFError:
+            break  # 非交互/输入耗尽 -> 视为拒绝
+        if ans != "y":
+            break
+        state = run_session(engine, bank, state, db, 3, topic=topic, level=level)
+        print_map(engine, state, covered_bloom)
+
     db.close()
     return 0
 

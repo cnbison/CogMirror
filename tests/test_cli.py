@@ -216,3 +216,43 @@ def test_post_liminal_shown_in_map(monkeypatch):
     out = sys.stdout.getvalue()
     assert "已跨越" in out
     assert "循环是受控的重复" in out
+
+
+# 交互流测试：主会话 3 道 loops-L3 全对 -> liminal；练习轮再 3 道全对 -> 已跨越。
+# loops-L3 前 3 道按题库顺序：pl-l3-01(sum_to)/pl-l3-02(max_of)/pl-l3-03(count_even)，均代码题。
+_LOOP_L3_ANSWERS = [
+    "80\n",
+    "def sum_to(n):\n", "    total = 0\n", "    for i in range(1, n + 1):\n", "        total += i\n", "    return total\n",
+    "END\n",
+    "80\n",
+    "def max_of(nums):\n", "    m = nums[0]\n", "    for x in nums:\n", "        if x > m:\n", "            m = x\n", "    return m\n",
+    "END\n",
+    "80\n",
+    "def count_even(nums):\n", "    c = 0\n", "    for n in nums:\n", "        if n % 2 == 0:\n", "            c += 1\n", "    return c\n",
+    "END\n",
+]
+
+
+def test_practice_accept_flow(monkeypatch, tmp_path):
+    # 地图末尾接受建议（y）-> 进入练习轮，liminal 概念跨过后重渲染「已跨越」地图
+    answers = _LOOP_L3_ANSWERS + ["y\n"] + _LOOP_L3_ANSWERS + ["\n"]
+    _, out = run_cli(
+        monkeypatch, tmp_path, answers=answers,
+        args=["--topic", "python.loops", "--level", "L3", "--questions", "3"],
+    )
+    assert "正在跨越中" in out, "主会话后应见 liminal"
+    assert "已跨越" in out, "练习轮后应见 post_liminal"
+    assert out.count("你的认知地图") >= 2, "应渲染两次地图（主会话 + 练习轮）"
+    assert "循环是受控的重复" in out
+
+
+def test_practice_decline_flow(monkeypatch, tmp_path):
+    # 地图末尾拒绝（n）-> 不再出题，只渲染一次地图
+    answers = _LOOP_L3_ANSWERS + ["n\n"]
+    _, out = run_cli(
+        monkeypatch, tmp_path, answers=answers,
+        args=["--topic", "python.loops", "--level", "L3", "--questions", "3"],
+    )
+    assert "正在跨越中" in out
+    assert out.count("你的认知地图") == 1, "拒绝后不应再渲染地图/出题"
+    assert "已跨越" not in out
