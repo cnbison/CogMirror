@@ -83,6 +83,31 @@ def _tc_remaining_text(engine: BeliefEngine, tc) -> str:
     return "即将跨越" if remaining <= 0 else f"再答对 {remaining} 次 L3+ 题即跨越"
 
 
+def _liminal_live_feedback(engine: BeliefEngine, state: BeliefState,
+                           skill_id: str, score: float,
+                           bloom_level: BloomLevel, prev_status: str | None) -> str:
+    """逐题临界概念反馈：liminal 相关的瞬间报一行进度/跨越/回落，其余静默.
+
+    在 run_session 每题 update 后调用，把"临界概念"从地图标注变成做题当下
+    能感受到的进度（prev_status 为该题 update 前的 TC 状态，用于识别刚跨越）。
+    """
+    tc = state.C.tc_states.get(skill_id)
+    if tc is None:
+        return ""
+    name = _tc_display_name(engine, skill_id)
+    if prev_status != "post_liminal" and tc.status == "post_liminal":
+        return f"「{name}」已跨越！恭喜，这个概念你已经真正掌握。"
+    if tc.status == "liminal":
+        if score >= 0.6:
+            # 只有 L3+ 答对才推进 liminal；L1/L2 答对不推进，静默避免误报进度
+            if bloom_level.value >= BloomLevel.APPLY.value:
+                return f"「{name}」跨越进度 {tc.progress:.0%}——{_tc_remaining_text(engine, tc)}"
+            return ""
+        return (f"「{name}」这次答错，跨越进度回落到 {tc.progress:.0%}"
+                f"——这不是退步，重来一组即可。")
+    return ""
+
+
 def ask_self_confidence() -> float | None:
     while True:
         # 末尾 \n：跳过自评（直接回车）时下一行提示另起一行，避免与选项粘连
@@ -146,6 +171,8 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
                           f"得到 {d.get('got')} {'✓' if d.get('passed') else '✗'}")
         if q.explanation:
             print(f"  要点: {q.explanation}")
+        tc_before = state.C.tc_states.get(q.skill_id)
+        prev_tc_status = tc_before.status if tc_before else None
         obs = Observation(
             skill_id=q.skill_id, problem_id=q.problem_id, score=score,
             bloom_level=q.bloom_level, self_confidence=self_conf,
@@ -155,6 +182,10 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
         db.save_response(state.user_id, obs.to_dict(),
                          illusory_flag=bool(state.C.illusory_confidence_hits
                                             and state.C.illusory_confidence_hits[-1].problem_id == q.problem_id))
+        live = _liminal_live_feedback(engine, state, q.skill_id, score,
+                                      q.bloom_level, prev_tc_status)
+        if live:
+            print(f"  {live}")
         print()
     db.save_state(state)
     return state

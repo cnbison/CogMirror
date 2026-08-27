@@ -117,6 +117,71 @@ def test_map_interpretation_liminal_clause():
     assert "中间态" in s
 
 
+def _answer_loops(engine, state, score, level=cli.BloomLevel.APPLY):
+    """模拟 run_session 单题流程：update + 捕获前置 TC 状态 + 返回逐题反馈行."""
+    tc_before = state.C.tc_states.get("python.loops")
+    prev = tc_before.status if tc_before else None
+    n = len(engine.get_history("t1"))
+    state = engine.update(state, cli.Observation(
+        skill_id="python.loops", problem_id=f"tcq{n}", score=score,
+        bloom_level=level, self_confidence=None, explanation_text=""))
+    line = cli._liminal_live_feedback(engine, state, "python.loops", score, level, prev)
+    return state, line
+
+
+def test_liminal_live_feedback_enters_advances_crosses():
+    # 3 次 L3+ 正确进入 liminal（前两次静默）-> 逐题推进剩余次数递减 -> 跨过报已跨越 -> 之后静默
+    engine = cli.BeliefEngine()
+    bank = cli.QuestionBank()
+    engine.l2.register_items_bulk(bank.mirt_items())
+    state = engine.create_initial_state("t1")
+    for i in range(2):
+        state, line = _answer_loops(engine, state, 1.0)
+        assert line == "", f"第 {i+1} 题未达 liminal 应静默: {line!r}"
+    state, line = _answer_loops(engine, state, 1.0)
+    assert "跨越进度 90%" in line and "再答对 3 次 L3+ 题即跨越" in line
+    state, line = _answer_loops(engine, state, 1.0)
+    assert "再答对 2 次 L3+ 题即跨越" in line
+    state, line = _answer_loops(engine, state, 1.0)
+    assert "再答对 1 次 L3+ 题即跨越" in line
+    state, line = _answer_loops(engine, state, 1.0)
+    assert "已跨越！恭喜" in line
+    state, line = _answer_loops(engine, state, 1.0)
+    assert line == "", "已跨越后再答不应重复庆祝"
+
+
+def test_liminal_live_feedback_wrong_resets():
+    engine = cli.BeliefEngine()
+    bank = cli.QuestionBank()
+    engine.l2.register_items_bulk(bank.mirt_items())
+    state = engine.create_initial_state("t1")
+    for _ in range(3):
+        state, _ = _answer_loops(engine, state, 1.0)  # 进 liminal（进度 90%）
+    state, line = _answer_loops(engine, state, 0.0)
+    assert "这次答错" in line
+    assert "回落到" in line
+    assert "这不是退步" in line
+
+
+def test_liminal_live_feedback_low_level_silent():
+    # liminal 中 L1 答对不推进临界概念 -> 不应误报"跨越进度"
+    engine = cli.BeliefEngine()
+    bank = cli.QuestionBank()
+    engine.l2.register_items_bulk(bank.mirt_items())
+    state = engine.create_initial_state("t1")
+    for _ in range(3):
+        state, _ = _answer_loops(engine, state, 1.0)
+    state, line = _answer_loops(engine, state, 1.0, level=cli.BloomLevel.REMEMBER)
+    assert line == "", f"L1 答对不推进 liminal 应静默: {line!r}"
+
+
+def test_liminal_live_feedback_unknown_skill_silent():
+    engine = cli.BeliefEngine()
+    state = engine.create_initial_state("t1")
+    assert cli._liminal_live_feedback(
+        engine, state, "python.nonexistent", 1.0, cli.BloomLevel.APPLY, None) == ""
+
+
 def test_map_only_and_restore(monkeypatch, tmp_path):
     run_cli(
         monkeypatch, tmp_path,
@@ -385,3 +450,17 @@ def test_practice_prompt_includes_remaining(monkeypatch, tmp_path):
         args=["--topic", "python.loops", "--level", "L3", "--questions", "3"],
     )
     assert "再答对 3 次 L3+ 题即跨越" in out
+
+
+def test_liminal_live_feedback_end_to_end(monkeypatch, tmp_path):
+    # 逐题反馈端到端：主轮第 3 题进入 liminal（90%/3 次），练习轮第 3 题跨过（已跨越）
+    answers = _LOOP_L3_ANSWERS + ["y\n"] + _LOOP_L3_ANSWERS + ["\n"]
+    _, out = run_cli(
+        monkeypatch, tmp_path, answers=answers,
+        args=["--topic", "python.loops", "--level", "L3", "--questions", "3"],
+    )
+    # 逐题行（地图只在轮末重渲染，"再答对 2/1 次"只可能来自逐题反馈）
+    assert "跨越进度 90%——再答对 3 次 L3+ 题即跨越" in out
+    assert "再答对 2 次 L3+ 题即跨越" in out
+    assert "再答对 1 次 L3+ 题即跨越" in out
+    assert "已跨越！恭喜" in out
