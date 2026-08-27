@@ -3,6 +3,7 @@
 > **上游文档**：`mac-mini-and-cogmirror-transfer.md` 第 2 部分（位于 PersonalAGI 仓库根目录，跨仓库故无相对链接）
 > **日期**：2026-08-27
 > **性质**：详细实施方案（PLAN），非已实施代码。所有"现状/源模式"均基于两仓库源码核实（READ），工作量/信心为估计（INFERRED，明确标注）。
+> **修订记录**：2026-08-27 首版；同日经 PersonalAGI / CogMirror 双仓库源码交叉复核后修订（P3 补两个前置缺口与无状态视图设计、P4 补第 0 步证据采集入口、多处源模式细节勘误）。
 > **适用约束**：本方案完全遵守 CogMirror 治理——GOVERNANCE 规则 4（不抽象化）、CLAUDE.md 硬规则（无 LLM、仅 numpy+scipy、判分确定性可复现）、两条线汇报（工程 vs 验证永不合并）。
 
 ---
@@ -18,9 +19,9 @@
 | P1 | A3 回归评测基建（先建黄金基线） | 无 | 4-6h | 高（守护后续所有引擎改动） | `tests/golden/*`、`tests/test_golden_regression.py` |
 | P2 | A1 自评置信度校准曲线 | P1 | 3-4h | 最高（升级 P0 伪自信核心） | `cogmirror/calibration.py` |
 | P3 | A4 间隔衰减接线（复活 apply_decay） | P1 | 2-3h | 中高 | （改 2 文件，无新文件） |
-| P4 | A2 misconception 闭环参数学习 | P1 | 4-6h | 中高 | `cogmirror/misconception_tracker.py` + DB 新表 |
+| P4 | A2 misconception 闭环参数学习（含第 0 步证据采集入口） | P1 | 6-10h | 中高 | `cogmirror/misconception_tracker.py` + DB 新表/新列 |
 | P5 | B1+B2 纵向档案 + 会话反思段 | P1 | 4-6h | 中 | `cogmirror/session.py`（可选） |
-| **合计** | | | **≈18-26h** | | |
+| **合计** | | | **≈20-30h**（2026-08-27 复核后上调：P3/P4 各补前置缺口工作量） | | |
 
 **为什么 A3 先行**：P2/P3/P4 都改动引擎行为（discount、suggestion、misconception 权重）。若不先固化"当前行为为黄金基线"，无法判断这些改动是改进还是破坏。这直接对应 PersonalAGI `eval/gauntlet_regression.py` 的核心纪律——**固定黄金集，每次变更跑全量，FAIL 且历史曾有 PASS = 回归**。基线先行让后续每个改动都能被自动裁判。
 
@@ -82,7 +83,12 @@
   - 断言 `expect` 窗口（客观 scorer）；
   - 断言 baseline：本次 FAIL 且 baseline 中该 case 为 PASS → 标回归（输出告警，不 fail 整个 run？——**决定：首版 fail**，因为工程纪律 > 平滑，标注清楚）；
   - 冷启动排除：baseline 未收录的 case 不报回归；
-  - `pytest -m regression` 标记。
+  - `pytest -m regression` 标记（需在 `pyproject.toml [tool.pytest.ini_options]` 注册 markers，否则 pytest 8 会告警）。
+
+**可复现性三细节（2026-08-27 复核补）**：
+- 每条黄金序列的 `Observation.timestamp` 必须**显式固定**（`Observation` 默认 `datetime.now()`，涉时间窗/衰减的断言会不可复现）；
+- baseline 断言与 `expect` 窗口一样**带容差**（scipy/BLAS 版本间可能有 1e-9 级微漂移，全等断言会碎）；
+- baseline.json 存**数值摘要**（mastery/theta/建议 topic 等），不存整份 state 序列化，避免无关字段差异造成假回归。
 
 **与 CLI 的耦合注意**：地图文案（suggestion/解读）在 `cli.py` 里。回归 runner 直接测 `next_suggestion()`、`map_interpretation()`、`suggested_practice()`（纯函数，可单测），避免驱动整个 `main()` 的输入流。
 
@@ -178,26 +184,37 @@ def compute_ece(curves) -> float                # 加权 |actual-predicted|
 把"一句话建议"从**做什么**升级到**何时做**：识别"曾经掌握、正在遗忘"的 skill，给出复习时机。**同时**把 `bkt.py:137 apply_decay` 从死代码接入产品路径（这是"built ≠ wired"的活实例）。
 
 ### 4.2 源模式（PersonalAGI，READ）
-`scheduler/user_jobs.py` + `campaigns/` 的核心模式是"**基于状态的再触达时机**"（campaign 状态机 + 内部指针 + 幂等认领 + 程序化 precheck 门）。但 CogMirror 是同步 CLI，**不需要** APScheduler/CronTrigger/持久化状态机——只取"何时该再触达"的判定逻辑，退化为会话开始的一次同步计算。这是对"可移植性评级"（研究 agent：调度原语属基础设施绑定）的正确降级。
+`scheduler/user_jobs.py` + `campaigns/` 的核心模式是"**基于状态的再触达时机**"（campaign 状态机 + 内部指针 + 幂等认领 + 程序化 precheck 门）。但 CogMirror 是本地同步 CLI，**不移植** APScheduler/CronTrigger 调度基建与 Telegram 分发渠道（Telegram 是出站渠道而非调度依赖）——只取"何时该再触达"的判定逻辑，退化为会话开始的一次同步计算。注：上游文档 A4 把 scheduler/campaigns 列为正面迁移源，本方案降级为"只取判定逻辑"是**由 CogMirror 产品形态（本地 CLI、单用户）决定的取舍**，非引用可移植性评级。
 
-### 4.3 现状（CogMirror，READ）
+### 4.3 现状（CogMirror，READ，2026-08-27 交叉复核）
 - `bkt.py:137 apply_decay(skill_id, days_since_last)` + `get_decay_constant(skill_id)`（默认 30 天）已实现；**产品路径零调用者**（仅 `test_engines.py:39` 引用）。
 - `cli.py:next_suggestion` 顺序：liminal 优先 → BKT 最弱 → 全好开新 topic。无"遗忘/复测"概念。
 - `responses` 表有 `created_at`，可算 skill 最近作答间隔。
+- **前置缺口 1（P3 必须先解决）**：BKT 状态（`engine.l1` 的 skill 模型）**不持久化**——恢复路径只 `engine.set_history`（`cli.py:581`，仅喂 MIRT），`l1` 每会话从零开始。因此"peak_mastery ≥ 0.7（曾掌握）"在重启后**无从计算**，不能直接读当前 `get_bkt_mastery`。
+- **前置缺口 2（双重衰减陷阱）**：`apply_decay` 是**原地乘法**（`bkt.py:146`：`model.p_mastered *= e^(-days/τ)`）。若每次会话开始都对同一 skill 按"距上次作答天数"调用，会在已衰减值上再乘全量因子 = 复合指数衰减。历史重放也不能走 `l1.update`（那是学习更新，不是时间衰减）。
 
 ### 4.4 设计
 
+**先解决两个前置缺口**：峰值来源（缺口 1）用**独立临时 BKTModel 历史重放**推导；衰减计算（缺口 2）改为**无状态视图**（直接按公式算，不调 `l1` 的原地 `apply_decay`，规避复合衰减）。
+
 **改动 `cogmirror/belief_engine.py`**：新增方法
 ```python
-def apply_history_decay(self, history: list[dict]) -> dict[str, float]:
-    """按 responses 时间戳对每个练过的 skill 应用 apply_decay，
-    返回 {skill_id: decayed_mastery}。内部用 skill 最近作答时间算 days_since_last。"""
+def peak_mastery_from_history(self, history: list[dict]) -> dict[str, float]:
+    """从 responses 重放推导每个 skill 的历史峰值掌握概率（只读，不改 l1）：
+    对每个 skill 取其作答序列，用独立的临时 BKTModel 逐条 update（学习更新，
+    非时间衰减），记录过程中 P(L) 最大值。可从 DB 幂等重算（覆盖缺口 1）。"""
+
+def decayed_mastery_view(self, history: list[dict]) -> dict[str, tuple[float, float]]:
+    """无状态衰减视图：返回 {skill_id: (peak, decayed)}，不改 l1 状态。
+    decayed = peak · e^(-days_since_last/τ)（直接算公式，不经 l1.apply_decay
+    的原地乘法，规避缺口 2 的复合衰减）；days_since_last 用该 skill 最近一条
+    response.created_at 距今天数。峰值来自 peak_mastery_from_history。"""
 ```
 
 **改动 `cogmirror/cli.py`**：
-- `main()` 加载历史后调用 `engine.apply_history_decay(history)`；
+- `main()` 加载历史后调用 `engine.decayed_mastery_view(history)`（纯只读，`l1` 会话内学习更新语义不变）；
 - `next_suggestion` 增加**复测分支**（在 liminal 之后、最弱 BKT 之前）：
-  - 条件：`peak_mastery ≥ 0.7`（曾掌握）且 `decayed_mastery < 0.55` 或相对峰值跌幅 ≥0.15；
+  - 条件：`peak_mastery ≥ 0.7`（曾掌握，来自历史重放视图而非当前 `l1`）且 `decayed_mastery < 0.55` 或相对峰值跌幅 ≥0.15；
   - 文案带"何时"："「循环」上次 42 天前练过，掌握概率从 82% 掉到 50%——建议先做 3 道复测题，趁遗忘前巩固。"
 - 地图新增一行 `[复习提示]`：列出所有命中复测条件的 skill + 天数。
 - `suggested_practice` / `practice_command` 同步支持复测分支（返回该 topic + level=None）。
@@ -208,11 +225,11 @@ def apply_history_decay(self, history: list[dict]) -> dict[str, float]:
 无 schema 变更（时间来自 `responses.created_at`）。
 
 ### 4.6 测试计划
-- `tests/test_engines.py` 增补：`apply_history_decay` 的间隔计算 + 衰减数学（30 天 → e^-1）；
+- `tests/test_engines.py` 增补：`peak_mastery_from_history` 重放正确性（历史峰值 ≠ 当前会话值，覆盖缺口 1）；`decayed_mastery_view` 的间隔计算 + 衰减数学（30 天 → e^-1）+ **幂等性**（同一历史连续调用两次结果相同，锁定缺口 2）；
 - `tests/test_cli.py` 增补：模拟"8 天前掌握、42 天未练"历史 → `next_suggestion` 返回复测文案、`[复习提示]` 出现、`suggested_practice` 返回正确 (topic, None)。
 
 ### 4.7 验收标准（可证伪）
-- `apply_decay` 不再死代码（grep 产品路径有调用）；
+- 衰减语义接入产品路径（`decayed_mastery_view` 被 `cli.py` 调用；`bkt.py:apply_decay` 原地接口保留，但产品路径衰减一律走无状态视图）；
 - 复测分支只在"曾掌握 + 显著衰减"时触发，**不干扰**正常 liminal/最弱分支；
 - **DISPROVEN IF**：新序列（连续练习无间隔）出现误报"复习提示"（应为空）。
 
@@ -233,17 +250,24 @@ def apply_history_decay(self, history: list[dict]) -> dict[str, float]:
 ### 5.2 源模式（PersonalAGI，READ）
 `learning/procedural/` 的可移植核心（研究 agent 明确点名）：
 - **Laplace 置信度**：`confidence = (success+1)/(success+failure+2)`；
-- **生命周期只靠证据**：失败积累 → 降档/隔离（`failure_count ≥ success+3` 降档；`conf < 0.3` 且样本≥3 → quarantine）；**无主动"过时"判定，靠失败降档隐式淘汰**；
-- **结果对账**：`PredictionReconciler` 把预测 join 到 outcome——CogMirror 版 = 把"某次 misconception 命中"join 到"后续同 skill 表现"判成功/失败。
+- **生命周期只靠证据**：失败积累 → 降档/隔离（降档为复合条件：`failure_count ≥ success+3` **且** `total_hits ≥ 3`；`conf < 0.3` 且 `s+f ≥ 3` → quarantine）；**无主动"过时"判定**（无 TTL/时间衰减，仅手动 `deprecated` 软删），靠失败降档隐式淘汰；
+- **结果对账**：`PredictionReconciler`（位于 `calibration/reconciler.py`）把预测 join 到 outcome——CogMirror 版 = 把"某次 misconception 命中"join 到"后续同 skill 表现"判成功/失败。
 - 不可移植部分（不搬）：LLM 分类、embedding 去重、LLM 提取。
 
 ### 5.3 现状（CogMirror，READ）
 - `content/misconceptions.py`：8 条（M1-M8），静态 `MisconceptionEntry`；
 - `belief_engine.py:280-295`：`_detect_misconception` 命中返回 `MisconceptionHit(confidence=0.6)` 固定；
 - Step 5（`belief_engine.py:202-207`）：命中 → `C.discount_factor *= (1 - min(0.6*0.3, 0.3))`。
-- `responses` 表存 `user_answer` + `skill_id`，可支持对账。
+- **前置缺口 A（P4 第 0 步，2026-08-27 交叉复核发现）**：**misconception 检测在产品路径从未触发**--`cli.py:304` 构造 Observation 时恒传 `explanation_text=""`，而 `_detect_misconception`（`belief_engine.py:282-284`）对空文本直接返回 None。即 Step 5 的"命中 -> 折扣"链路在真实使用中是**死的**（仅测试直接构造带 explanation_text 的 Observation 才触发），P4 的证据闭环没有天然数据来源。
+- **前置缺口 B（对账原料缺失）**：`responses` 表虽存 `user_answer` + `skill_id`，但 (a) 检测输入是**解释文本**（`explanation_text`）而非 `user_answer`，两者不是一回事；(b) responses 表**未存 misconception 命中记录**（无 misc_id 字段，`MisconceptionHit` 只活在内存 state 里），reconcile 无从 join。
+- 结论：**P4 第 0 步必须先建证据采集入口**，否则闭环无米下锅（原估 4-6h 未计此项）。
 
 ### 5.4 设计
+
+**第 0 步（新增，解决缺口 A/B）：证据采集入口**
+- **A 路（采集解释文本）**：选择题答错后追加一个可选追问--「用一句话说说你为什么选这个？」（直接回车跳过）；fill/code 答错后同样追问。答案填入 `Observation.explanation_text`（改 `cli.py` 构造处，替代恒空串）。跳过是常态、解释是例外--不强制，避免打扰。
+- **B 路（落库命中记录，解决对账原料）**：`responses` 表加一列 `misc_id TEXT`（`CREATE TABLE IF NOT EXISTS` 不可改既有表结构--用 `ALTER TABLE ... ADD COLUMN` + "列不存在才加"的启动检查，单用户本地库可行）；`save_response` 把当次 `MisconceptionHit.misc_id` 写入。reconcile 从此列 join，不再依赖内存 state。
+- 判分/检测逻辑（关键词库 + `belief_engine` Step 5）不动，只补输入与落库。
 
 **新文件 `cogmirror/misconception_tracker.py`**：
 ```python
@@ -276,6 +300,7 @@ CREATE TABLE IF NOT EXISTS misconception_evidence (
 - 会话结束（CLI 收尾）调 `tracker.reconcile(history)` + `db.save_misconception_evidence`。
 
 ### 5.5 测试计划
+- `tests/test_cli.py` 增补（第 0 步）：答错后出现追问提示、回车跳过不阻塞、解释文本进入 Observation 并能触发检测（覆盖缺口 A）；`misc_id` 落库 + 从 DB 恢复后 reconcile 可用（覆盖缺口 B）。
 - `tests/test_misconception_tracker.py`：Laplace 数学、reconcile 的成功/失败分支、quarantine 阈值、DB 往返。
 - `tests/test_belief_engine.py` 增补：固定 0.6 → 证据权重后，C 折扣随证据变化。
 
@@ -283,10 +308,11 @@ CREATE TABLE IF NOT EXISTS misconception_evidence (
 - 反复触发同一 misconception（如 3 次失败）→ 权重 > 0.6、C 折扣更深；被克服后权重回落；
 - **DISPROVEN IF**：reconcile 对"命中后首条同 skill 正确响应"判成 failure（对账语义错）；
 - 259 项既有测试全绿（`_detect_misconception` 返回结构不变，仅 confidence 来源变）。
+- **第 0 步验收**：真机答错一题并输入含关键词的解释 -> 地图 C 维度出现 misconception 命中（P4 前该链路从未在产品路径触发过）。
 
 ### 5.7 风险与回滚
 - 风险：对账窗口定义不当（同 skill 下一条响应可能跨很长的真实时间）→ 用"同一会话内"或"间隔 ≤N 天"限定（首版：同一会话内）。
-- 回滚：删 tracker + 还原 Step 5 + 删表语句（表可留，数据无意义）。
+- 回滚：删 tracker + 还原 Step 5 + 删表语句（表可留，数据无意义）；第 0 步独立回滚 = 还原追问与落库改动，检测链路回到"待输入"状态即可。
 
 ### 5.8 决策关卡
 - 通过：证据驱动的权重变化符合直觉 & 全绿 → 进入 P5。
@@ -301,7 +327,7 @@ CREATE TABLE IF NOT EXISTS misconception_evidence (
 - **B2**：把"整体解读段"升级为"本次会话变化 + 为什么 + 单一下一步"的反思段（借 PersonalAGI `reflection/` 的"证据锚定洞察"模式）。
 
 ### 6.2 源模式（PersonalAGI，READ）
-- `memory/` 4 层：主动召回 = 会话开始自动浮现相关历史（CogMirror 版：上次会话的卡点 + 跨会话趋势，从已有 SQLite 聚合，**不引入 Qdrant/向量**）；
+- `memory/` 4 层（L1 essentials 会话开始注入 / L2 语义召回每 prompt 触发 / L3 深检索 / L4 知识管线）：CogMirror 借的是"相关历史主动浮现"的**模式**（L1/L2 的效果），实现退化为会话开始时从已有 SQLite 聚合上次卡点 + 跨会话趋势，**不引入 Qdrant/向量**（注：源仓库 L1/L2 职责不同，此处合并表述为目标效果而非逐层对应）；
 - `reflection/`：定时 + 证据锚定的洞察抽取（CogMirror 版：确定性启发式，零 LLM）。
 
 ### 6.3 现状（CogMirror，READ）
@@ -319,7 +345,7 @@ def multi_session_trend(db, user_id, n=3) -> dict[str, float]
 ```
 **CLI 改动**：`main()` 欢迎行扩展——`上次卡住：循环(range 边界)、作用域`；地图新增 `[近几次趋势]` 段（仅 ≥2 会话且样本足时显示，否则诚实标注"数据不足"）。**无需新表**：从 `responses`（卡点）+ `belief_snapshots`（趋势）聚合即可（避免维护 session 边界表的理由同 P2——单用户聚合成本可忽略）。
 
-**B2 — 扩展 `map_interpretation`（`cli.py:399`）**：在现有综合段后追加"本次会话"反思句：
+**B2 — 扩展 `map_interpretation`（`cli.py:407`）**：在现有综合段后追加"本次会话"反思句：
 - 本次变化：从 `_map_delta_lines` 结果取前 2 项（"本次 K +12%、P -5%"）；
 - 为什么：绑定具体证据（"K 上升来自 4 道 L1-L2 全对；P 回落因 2 道写码题只对一半"）；
 - 下一步：引用 `next_suggestion` 的动作 + 一句理由（"因为「循环」处于 liminal 跨越中，合意困难原则建议继续巩固而非学新概念"）。
@@ -373,10 +399,10 @@ def multi_session_trend(db, user_id, n=3) -> dict[str, float]
 |---|---|---|
 | P1 回归基建契合治理 | 90% | 直接操作化规则 1-2；与现有 259 项测试体系正交；剩余风险=黄金序列覆盖面 |
 | P2 校准算法正确性 | 85% | 源算法纯算法可搬（研究 agent 确认）；Laplace 平滑为必要本地化；剩余风险=单用户桶稀疏 |
-| P3 复测分支价值 | 80% | 死代码确认；建议顺序改动有 UX 风险，已用双条件保守化 |
-| P4 misconception 对账语义 | 75% | reconcile 的"下一条响应"窗口定义是唯一不确定点，首版限定同一会话内 |
+| P3 复测分支价值 | 75% | 死代码确认；BKT 不持久化 + 原地衰减陷阱两前置缺口已补设计（无状态视图），剩余风险 = 历史重放峰值语义（重放学 BKT ≠ 真实历史状态） |
+| P4 misconception 对账语义 | 65% | 检测链路在产品路径从未触发（缺口 A）+ 命中记录未落库（缺口 B），已补第 0 步（答错追问 + misc_id 落库）；reconcile 窗口仍不确定，首版限同一会话。置信度低于原评估的原因：采集交互新增，真实用户是否输入解释未知（可能长期零证据 -> 闭环空转） |
 | P5 纵向/反思段 | 80% | 复用已有 delta 机制，改动小；剩余风险=文案克制 |
-| 总工作量 | — | 18-26h（INFERRED，按两仓库实际代码规模估计） |
+| 总工作量 | - | 20-30h（INFERRED，2026-08-27 交叉复核后上调：P3 双缺口 + P4 第 0 步采集入口） |
 
 **下一步**（本方案经确认后）：从 P1 开始实施。P1 完成并过关卡后，P2/P3/P4 均可并行或串行推进（三者都只依赖 P1 基线）。
 
