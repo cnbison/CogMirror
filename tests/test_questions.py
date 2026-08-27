@@ -69,6 +69,20 @@ class TestBank:
             l2 = sum(1 for q in tq if q.bloom_level == BloomLevel.UNDERSTAND)
             assert l1 >= 1 and l2 >= 1, f"{topic} 缺少 L1/L2 基础题"
 
+    def test_every_choice_question_has_option_explanations(self, bank):
+        """④ 题目讲解深度：所有选择题逐选项讲解齐全且与选项一一对应."""
+        choice = [q for q in bank.all_questions() if q.qtype == "choice"]
+        assert choice, "题库应包含选择题"
+        for q in choice:
+            assert len(q.option_explanations) == len(q.options), \
+                f"{q.problem_id} 讲解数 {len(q.option_explanations)} != 选项数 {len(q.options)}"
+            assert all(e.strip() for e in q.option_explanations), \
+                f"{q.problem_id} 存在空讲解"
+        # 非选择题不应误带逐选项讲解
+        for q in bank.all_questions():
+            if q.qtype != "choice":
+                assert not q.option_explanations, f"{q.problem_id} 非选择题不应有逐选项讲解"
+
 
 class TestGrading:
     def test_choice_right_wrong(self, bank):

@@ -66,7 +66,8 @@ class Question:
         func_name: code 题要求定义的函数名
         tests: code 题的测试用例
         loadings: 5D 载荷 {"K": 1.2, "P": 0.3, ...}（未列维度为 0）
-        explanation: 判分后给用户看的知识点解释
+        explanation: 判分后给用户看的知识点解释（fill/code 用）
+        option_explanations: choice 题每个选项的讲解（长度与 options 一致）
     """
 
     problem_id: str
@@ -82,6 +83,7 @@ class Question:
     func_name: str = ""
     tests: tuple[TestCase, ...] = ()
     explanation: str = ""
+    option_explanations: tuple[str, ...] = ()
 
 
 # ── 判分 ───────────────────────────────────────────────────────────
@@ -179,6 +181,12 @@ def _bank() -> list[Question]:
             prompt="下列哪个是合法的 Python 变量赋值语句？",
             options=("x == 5", "x = 5", "int x = 5", "x: = 5"), answer=1,
             explanation="Python 赋值用单个等号 =，== 是比较运算符。",
+            option_explanations=(
+                "x == 5 是比较运算（判断 x 是否等于 5），不是赋值。",
+                "正确。单个等号 = 是赋值，把名字 x 绑定到值 5。",
+                "Python 不需要（也不允许）像 C 那样在赋值时声明类型 int。",
+                "x: = 5 不是合法的赋值语法，冒号后不能直接跟等号。",
+            ),
         ),
         Question(
             problem_id="pv-l2-01", skill_id="python.variables", topic="python.variables",
@@ -186,6 +194,12 @@ def _bank() -> list[Question]:
             prompt="执行 x = 3; x = x + 1 后，x 的值是？",
             options=("报错，等式不成立", "3", "4", "1"), answer=2,
             explanation="赋值先计算右边表达式（3+1=4），再把名字 x 绑定到 4。",
+            option_explanations=(
+                "不会报错。= 是赋值不是数学等式，x 出现在等号两边完全合法。",
+                "忽略了第二次赋值——x 先被绑到 3，随后又被重新绑定到 4。",
+                "正确。赋值先算右边 3+1=4，再把名字 x 绑定到 4。",
+                "1 与计算无关，x = x + 1 是把 x 加 1 而不是设成 1。",
+            ),
         ),
         Question(
             problem_id="pv-l2-02", skill_id="python.variables", topic="python.variables",
@@ -211,6 +225,12 @@ def _bank() -> list[Question]:
             prompt="代码：a = [1, 2]; b = a[:]; b.append(3)。执行后 a 的值是？",
             options=("[1, 2, 3]", "[1, 2]", "报错", "不确定"), answer=1,
             explanation="a[:] 创建了新列表（浅拷贝），b 与 a 不再指向同一对象。",
+            option_explanations=(
+                "混淆了切片复制与直接赋值——a[:] 生成的是新列表，b 的 append 不会影响 a。",
+                "正确。a[:] 是浅拷贝，b 与 a 指向不同对象，b.append(3) 只改 b。",
+                "切片和 append 都是合法操作，不会报错。",
+                "行为是确定的：a 始终是 [1, 2]。",
+            ),
         ),
         # ─── 循环 ──────────────────────────────────────────────────
         Question(
@@ -226,6 +246,12 @@ def _bank() -> list[Question]:
             prompt="range(1, 5, 2) 产生的序列是？",
             options=("1, 3, 5", "1, 3", "1, 2, 3, 4, 5", "2, 4"), answer=1,
             explanation="start=1，stop=5（不含），step=2 -> 1, 3。",
+            option_explanations=(
+                "多算了 5——range 是右开的，stop=5 不包含 5。",
+                "正确。start=1、step=2，到小于 stop 为止：1、3。",
+                "忽略了步长 2，也忽略了右开。",
+                "把起点当成了 0，且漏掉了 1。",
+            ),
         ),
         Question(
             problem_id="pl-l3-01", skill_id="python.loops", topic="python.loops",
@@ -262,6 +288,12 @@ def _bank() -> list[Question]:
                 "i 应该初始化为 1",
             ), answer=1,
             explanation="循环三要素：初始化、终止条件、状态更新。缺状态更新必然死循环。",
+            option_explanations=(
+                "条件 i < 5 本身没问题，问题出在循环体里没有改变 i。",
+                "正确。i 永远是 0，条件 i < 5 永远为真，循环无法退出。",
+                "print 完全可以放在 while 循环里。",
+                "初始值不是关键，缺少对 i 的更新才是死循环的根因。",
+            ),
         ),
         # ─── 函数 ──────────────────────────────────────────────────
         Question(
@@ -275,6 +307,12 @@ def _bank() -> list[Question]:
                 "define f(x): return x * 2",
             ), answer=0,
             explanation="Python 用 def 定义函数，return 返回值。",
+            option_explanations=(
+                "正确。def 定义函数，return 把结果返回给调用方。",
+                "function f(x) { ... } 是 JavaScript 风格，Python 用 def + 冒号。",
+                "-> 是类型注解语法，不能跟 return 组合。",
+                "Python 没有 define 关键字，定义函数一律用 def。",
+            ),
         ),
         Question(
             problem_id="pf-l2-01", skill_id="python.functions", topic="python.functions",
@@ -282,6 +320,12 @@ def _bank() -> list[Question]:
             prompt="def f(x): print(x * 2)，则 y = f(3) 之后 y 的值是？",
             options=("6", "None", "报错", "3"), answer=1,
             explanation="print 只是输出副作用，没有 return 的函数返回 None。",
+            option_explanations=(
+                "6 被 print 显示到屏幕上，但函数没有 return，它的返回值是 None，不是 6。",
+                "正确。函数没有 return 时默认返回 None。",
+                "print(x * 2) 是合法调用，不会报错。",
+                "3 是参数，与返回值无关。",
+            ),
         ),
         Question(
             problem_id="pf-l3-01", skill_id="python.functions", topic="python.functions",
@@ -314,6 +358,12 @@ def _bank() -> list[Question]:
             prompt="def f(lst): lst.append(4)。执行 a = [1]; f(a) 后 a 的值是？",
             options=("[1]", "[1, 4]", "None", "报错"), answer=1,
             explanation="列表作为参数传的是引用，函数内 append 影响调用方的列表。",
+            option_explanations=(
+                "误以为传参是复制。列表作为参数传的是引用，函数内修改会反映到原列表。",
+                "正确。f(a) 把列表引用传进去，lst.append(4) 直接改了这个列表，所以 a 变成 [1, 4]。",
+                "None 是 f 的返回值，不是 a 的值。",
+                "把列表传给函数完全合法，不会报错。",
+            ),
         ),
         # ─── 递归 ──────────────────────────────────────────────────
         Question(
@@ -327,6 +377,12 @@ def _bank() -> list[Question]:
                 "全局变量和局部变量",
             ), answer=1,
             explanation="没有基准情形的递归会无限调用直至栈溢出。",
+            option_explanations=(
+                "递归靠函数调用自身推进，不依赖 for 循环。",
+                "正确。递归函数必须调用自身，并且有能终止的基准情形（base case）。",
+                "print 与递归的定义无关，return 才是让值传回去的关键。",
+                "递归同样可以用局部变量，它们不是递归的必要要素。",
+            ),
         ),
         Question(
             problem_id="pr-l2-01", skill_id="python.recursion", topic="python.recursion",
@@ -339,6 +395,12 @@ def _bank() -> list[Question]:
                 "没有区别",
             ), answer=1,
             explanation="递归核心是化归：分解为更小的同类子问题直到基准情形。",
+            option_explanations=(
+                "递归通常更慢（每层调用有函数调用开销），不是更快。",
+                "正确。递归把问题化为更小的同类子问题（化归）；循环是重复执行同一段代码。",
+                "恰恰相反，递归必须有终止条件（基准情形）。",
+                "有本质区别：一个是化归，一个是重复。",
+            ),
         ),
         Question(
             problem_id="pr-l3-01", skill_id="python.recursion", topic="python.recursion",
@@ -363,6 +425,12 @@ def _bank() -> list[Question]:
                 "正常结束",
             ), answer=2,
             explanation="没有基准情形，调用栈不断加深直到超过默认深度限制（约 1000）。",
+            option_explanations=(
+                "没有基准情形，f 永远不会返回 0 或其他值。",
+                "不会返回 None——它根本没机会返回，直接超出递归深度。",
+                "正确。f 无限调用 f(n-1)，直到超过默认递归深度上限（约 1000），抛 RecursionError。",
+                "不会正常结束，必然报错。",
+            ),
         ),
         # ─── 作用域 ────────────────────────────────────────────────
         Question(
@@ -378,6 +446,12 @@ def _bank() -> list[Question]:
             prompt="x = 10\ndef f():\n    x = 5\nf()\nprint(x) 输出什么？",
             options=("5", "10", "报错", "None"), answer=1,
             explanation="函数内的 x = 5 创建的是局部变量，不影响全局 x。",
+            option_explanations=(
+                "函数内的 x = 5 是新建的局部变量，并不会改写全局 x。",
+                "正确。f 里的 x = 5 只在函数内生效，外面的 print(x) 读到的是全局 x = 10。",
+                "函数内给局部变量赋值是完全合法的，不会报错。",
+                "print(x) 输出的是 x 的值 10，不是 None。",
+            ),
         ),
         Question(
             problem_id="ps-l3-01", skill_id="python.scope", topic="python.scope",
@@ -392,6 +466,12 @@ def _bank() -> list[Question]:
             prompt="funcs = [lambda: i for i in range(3)]，则 [f() for f in funcs] 的结果是？",
             options=("[0, 1, 2]", "[2, 2, 2]", "[0, 0, 0]", "报错"), answer=1,
             explanation="闭包捕获的是变量 i 本身而非当时的值；循环结束后 i = 2。（注：lambda 参数默认值 i=i 可修复）",
+            option_explanations=(
+                "若 lambda 捕获的是当时的值才会得到 [0, 1, 2]；实际捕获的是变量 i 本身。",
+                "正确。所有 lambda 共享同一个 i，循环结束后 i = 2，所以每个都返回 2。（修复：lambda i=i: i）",
+                "不是 [0, 0, 0]——三个 lambda 读的是循环结束后的同一个 i，值是 2。",
+                "lambda 捕获循环变量不会报错，只是行为与直觉不同。",
+            ),
         ),
         # ─── 变量与赋值（L3+ 扩充，2026-08-26：F10 三态端到端可达） ──
         Question(
@@ -405,6 +485,12 @@ def _bank() -> list[Question]:
                 "先比较 x 和 x + 1 是否相等",
             ), answer=0,
             explanation="赋值语句先计算右边的表达式，再把左边的名字绑定到结果，所以 x = x + 1 合法且常见。",
+            option_explanations=(
+                "正确。赋值分两步：先算右边 3 + 1 = 4，再把名字 x 绑定到 4。",
+                "Python 没有「复制一份再修改」的赋值语义，名字直接绑定到计算结果。",
+                "合法。= 不是数学等号，x 同时出现在两边没有问题。",
+                "= 是赋值，== 才是比较；赋值语句不会先比较相等。",
+            ),
         ),
         Question(
             problem_id="pv-l3-03", skill_id="python.variables", topic="python.variables",
@@ -424,6 +510,12 @@ def _bank() -> list[Question]:
             prompt="a = [1, 2]\nb = a\nb = b + [3]\n执行后 a 的值是？",
             options=("[1, 2, 3]", "[1, 2]", "报错", "[3]"), answer=1,
             explanation="b + [3] 创建了新的列表，b 重新绑定到新列表；a 仍指向原列表，不受影响。",
+            option_explanations=(
+                "b + [3] 生成的是新列表，b 重新绑定到它；a 仍然指向原来的 [1, 2]，不会被改。",
+                "正确。b = b + [3] 相当于先算新列表再重新绑定 b，原列表（a 所指）不变。",
+                "列表 + 列表是合法操作，不会报错。",
+                "[3] 不是结果，b 重新绑定到了 [1, 2, 3]。",
+            ),
         ),
         Question(
             problem_id="pv-l4-03", skill_id="python.variables", topic="python.variables",
@@ -431,6 +523,12 @@ def _bank() -> list[Question]:
             prompt="a = [1, 2]\nb = a\nb += [3]\n执行后 a 的值是？",
             options=("[1, 2, 3]", "[1, 2]", "报错", "None"), answer=0,
             explanation="列表的 += 是原地修改（等价于 extend），b 与 a 共享同一对象，所以 a 也变成 [1, 2, 3]。",
+            option_explanations=(
+                "正确。列表的 += 是原地修改（等价于 extend），b 与 a 指向同一个列表，a 也变成 [1, 2, 3]。",
+                "把 += 和 + 搞混了：b + [3] 生成新列表，而 b += [3] 是原地修改共享对象。",
+                "列表的 += 完全合法，不会报错。",
+                "b += [3] 后 b 是 [1, 2, 3]，不是 None。",
+            ),
         ),
         # ─── 循环（L3+ 扩充）───────────────────────────────────────
         Question(
@@ -463,6 +561,12 @@ def _bank() -> list[Question]:
             prompt="执行 for i in range(0, 10, 3): print(i)，依次输出哪些数？",
             options=("0, 3, 6, 9", "0, 3, 6, 9, 12", "1, 4, 7, 10", "3, 6, 9"), answer=0,
             explanation="range(0, 10, 3) 从 0 开始、步长 3、不含 10，所以是 0, 3, 6, 9。",
+            option_explanations=(
+                "正确。start=0、step=3、stop=10 右开不含 10：0, 3, 6, 9。",
+                "12 已经超过 stop=10，不在范围内。",
+                "起点是 0 不是 1，且 stop 不含 10。",
+                "漏掉了起点 0。",
+            ),
         ),
         # ─── 函数（L3+ 扩充）───────────────────────────────────────
         Question(
@@ -495,6 +599,12 @@ def _bank() -> list[Question]:
             prompt="def f(x, lst=[]):\n    lst.append(x)\n    return lst\n连续调用 f(1)、f(2)、f(3) 后，f(3) 的返回值是？",
             options=("[3]", "[1, 2, 3]", "[1]", "报错"), answer=1,
             explanation="默认参数列表只在函数定义时创建一次，多次调用共享同一个列表对象，元素会跨调用累积。",
+            option_explanations=(
+                "若每次调用都新建默认列表才会返回 [3]；实际默认列表只在定义时创建一次，被所有调用共享。",
+                "正确。lst=[] 只创建一次，f(1) 后是 [1]，f(2) 后是 [1, 2]，f(3) 返回 [1, 2, 3]。",
+                "与 [1] 无关，元素是跨调用累积的。",
+                "这是 Python 的经典陷阱，但不会报错。",
+            ),
         ),
         # ─── 递归（L3+ 扩充）───────────────────────────────────────
         Question(
@@ -520,6 +630,12 @@ def _bank() -> list[Question]:
                 "def f(n):\n    return n if n == 0 else f(n - 1)",
             ), answer=1,
             explanation="第二个函数没有任何基准情形，无论 n 是多少都继续调用 f(n-1)，最终栈溢出。",
+            option_explanations=(
+                "有基准情形 n <= 1 时返回 1，递归会终止。",
+                "正确。函数体只有 f(n-1)，没有基准情形，任何输入都会无限递归直到栈溢出。",
+                "有基准情形 n == 0 时返回 0，会终止。",
+                "有基准情形 n == 0 时返回 n，会终止。",
+            ),
         ),
         Question(
             problem_id="pr-l4-02", skill_id="python.recursion", topic="python.recursion",
@@ -527,6 +643,12 @@ def _bank() -> list[Question]:
             prompt="def g(n):\n    return 0 if n == 0 else 1 + g(n - 1)\n调用 g(3) 时，调用栈最深时有多少层？",
             options=("3 层", "4 层", "1 层", "无限"), answer=1,
             explanation="g(3)→g(2)→g(1)→g(0) 共 4 层，到 g(0) 返回 0 后再逐层展开。",
+            option_explanations=(
+                "只数到 g(2) 是 3 层，但还会继续压入 g(1)、g(0)，最深时是 4 层。",
+                "正确。调用链 g(3) → g(2) → g(1) → g(0)，g(0) 是基准，栈最深时有 4 层。",
+                "低估了深度——每次调用都压栈，不止 1 层。",
+                "g(0) 是基准情形，递归会终止，不会无限。",
+            ),
         ),
         Question(
             problem_id="pr-l4-03", skill_id="python.recursion", topic="python.recursion",
@@ -534,6 +656,12 @@ def _bank() -> list[Question]:
             prompt="下列哪个问题用递归解决最自然？",
             options=("遍历一棵树的所有节点", "打印 1 到 100", "计算两个整数之和", "交换两个变量的值"), answer=0,
             explanation="树的结构天然是递归的（每个子树都是一棵树），递归遍历最自然；其余问题迭代即可。",
+            option_explanations=(
+                "正确。树的每个子树都是一棵树，递归遍历与结构天然对应；其他三个问题迭代（循环）更直接。",
+                "打印 1 到 100 用循环即可，递归没有优势还多一层栈开销。",
+                "两个数相加直接算，不需要递归。",
+                "交换两个变量一行多重赋值即可。",
+            ),
         ),
         # ─── 作用域（L3+ 扩充）─────────────────────────────────────
         Question(
@@ -554,6 +682,12 @@ def _bank() -> list[Question]:
             prompt="x = 5\ndef f():\n    global x\n    x = x + 1\nf()\nprint(x) 输出什么？",
             options=("5", "6", "报错", "None"), answer=1,
             explanation="global 声明让函数内修改的是全局 x，所以 x 变为 6。",
+            option_explanations=(
+                "忽略了函数开头的 global x——它让函数内改的就是全局变量。",
+                "正确。global x 声明后，x = x + 1 修改的是全局 x，从 5 变 6。",
+                "有 global 声明，不会报 UnboundLocalError。",
+                "print(x) 输出的是全局 x 的值 6，不是 None。",
+            ),
         ),
         Question(
             problem_id="ps-l4-02", skill_id="python.scope", topic="python.scope",
@@ -561,6 +695,12 @@ def _bank() -> list[Question]:
             prompt="def outer():\n    n = 0\n    def inner():\n        nonlocal n\n        n += 1\n        return n\n    return inner\nf = outer()\n连续调用 f() 三次，第三次的返回值是？",
             options=("1", "2", "3", "报错"), answer=2,
             explanation="nonlocal 让 inner 修改外层 outer 的 n，且跨调用保持，三次调用分别返回 1、2、3。",
+            option_explanations=(
+                "1 是第一次调用的返回值；第三次调用时 n 已经累加到 3。",
+                "2 是第二次调用的返回值。",
+                "正确。nonlocal 让 inner 修改并保持外层 outer 的 n，三次调用依次返回 1、2、3。",
+                "nonlocal 声明合法，不会报错。",
+            ),
         ),
         Question(
             problem_id="ps-l4-03", skill_id="python.scope", topic="python.scope",
@@ -568,6 +708,12 @@ def _bank() -> list[Question]:
             prompt="x = 10\ndef f():\n    print(x)\n    x = 5\nf() 会发生什么？",
             options=("输出 10", "输出 5", "UnboundLocalError", "NameError"), answer=2,
             explanation="函数内对 x 赋值使 x 成为局部变量，print(x) 时局部 x 尚未赋值，触发 UnboundLocalError。",
+            option_explanations=(
+                "函数体内有 x = 5，x 就被视为局部变量；print(x) 在它赋值之前读取，读不到 10。",
+                "print(x) 在 x = 5 之前执行，而且它读取的是未绑定的局部 x，不会输出 5。",
+                "正确。函数内对 x 赋值使其成为局部变量，print 时局部 x 尚未赋值 → UnboundLocalError。",
+                "是 UnboundLocalError（局部变量未绑定），不是全局名字未定义的 NameError。",
+            ),
         ),
         # ─── L5/L6 补齐（2026-08-27：打通 Bloom 六层全链）────────────
         # L5 评价 = choice（判断写法/取舍的优劣，S 载荷）；L6 创造 = code（P 载荷）。
@@ -583,6 +729,12 @@ def _bank() -> list[Question]:
                 "a, b = (b, a)",
             ), answer=2,
             explanation="加减法交换只在数值且无精度问题时成立：浮点数会引入精度误差、数值大时可能溢出，可读性也差。Python 原生多重赋值 a, b = b, a 既简洁又无副作用。",
+            option_explanations=(
+                "正确且推荐：Python 原生多重赋值，简洁、无临时变量、无副作用。",
+                "用临时变量三步交换，清晰可靠，没有任何隐蔽问题。",
+                "正确（要选的就是它）。加减法交换只在数值且无精度问题时成立：浮点数有精度误差、大整数可能溢出，可读性也差。",
+                "a, b = (b, a) 与 a, b = b, a 等价，同样正确。",
+            ),
         ),
         Question(
             problem_id="pl-l5-01", skill_id="python.loops", topic="python.loops",
@@ -595,6 +747,12 @@ def _bank() -> list[Question]:
                 "for 只能搭配 range 使用",
             ), answer=1,
             explanation="已知次数时 for 更安全：迭代变量的初始化与步进由循环结构管理，避开'忘更新计数变量→死循环'这类错误。while 适合次数未知、靠条件退出（如读输入直到 EOF）的场景。",
+            option_explanations=(
+                "不是速度问题；真正的差别在安全性：for 少一个手动维护计数变量的出错点。",
+                "正确。for 自动管理计数变量的初始化与步进，避免了忘更新变量导致的死循环。",
+                "while 完全可以做数字循环（while i < N），只是要自己维护 i。",
+                "for 可以迭代任何可迭代对象（列表、字符串、字典……），不只是 range。",
+            ),
         ),
         Question(
             problem_id="pf-l5-01", skill_id="python.functions", topic="python.functions",
@@ -607,6 +765,12 @@ def _bank() -> list[Question]:
                 "return 只能返回整数",
             ), answer=2,
             explanation="return 让函数成为可组合的'计算单元'：结果可赋值、可传参、可测试；print 只是把值显示到屏幕，把 print 当返回值用的函数无法被调用方继续计算。",
+            option_explanations=(
+                "函数里可以同时用 print 和 return，两者职责不同。",
+                "与执行速度无关；差别在结果是否可复用。",
+                "正确。return 把结果交给调用方（可赋值、传参、测试）；print 只是显示副作用，结果无法复用。",
+                "return 可以返回任何对象：数字、字符串、列表、函数……不限整数。",
+            ),
         ),
         Question(
             problem_id="pr-l5-01", skill_id="python.recursion", topic="python.recursion",
@@ -619,6 +783,12 @@ def _bank() -> list[Question]:
                 "递归能解决的问题循环一定不能解决",
             ), answer=1,
             explanation="递归贴近问题结构（如遍历树），但每层调用占栈内存，递归过深会 RecursionError；深递归通常改写为显式栈或循环。",
+            option_explanations=(
+                "递归每层调用都有栈开销，通常更慢，不是更高效。",
+                "正确。递归用调用栈自然表达「自己调用自己」，适合树/嵌套结构，但有栈开销和深度限制。",
+                "递归必须自己写基准情形，不能靠解释器兜底。",
+                "任何递归都可以改写成循环（显式栈），所以不是递归独有、循环不能做的。",
+            ),
         ),
         Question(
             problem_id="ps-l5-01", skill_id="python.scope", topic="python.scope",
@@ -631,6 +801,12 @@ def _bank() -> list[Question]:
                 "需要共享/修改的状态尽量作为参数传入，或用类/闭包封装，避免滥用 global",
             ), answer=3,
             explanation="滥用 global 会让函数依赖外部可变状态、顺序敏感、难以测试与复用。读取全局常量没有问题；需要修改共享状态时，优先用参数/类/闭包封装。",
+            option_explanations=(
+                "滥用 global 是坏实践：函数依赖外部可变状态、调用顺序敏感、难测试难复用。",
+                "把所有变量都设为全局会让程序难以追踪与维护，不是推荐做法。",
+                "函数内读取全局常量完全没问题（如常量、配置），只有修改共享状态才需要谨慎。",
+                "正确。需要共享/修改的状态尽量作为参数传入，或用类/闭包封装，避免滥用 global。",
+            ),
         ),
         Question(
             problem_id="pv-l6-01", skill_id="python.variables", topic="python.variables",

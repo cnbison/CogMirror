@@ -754,3 +754,37 @@ def test_review_no_wrong_skips_practice(monkeypatch, tmp_path):
     assert "当前没有需要重练的错题" in out
     assert "本组共" not in out
     assert "你的认知地图" in out
+
+
+# ── 题目讲解深度（2026-08-27）─────────────────────────────────────
+
+
+def test_choice_explanation_for_correct_option(monkeypatch, tmp_path):
+    # 选择题答对：显示所选选项的讲解（正确解释）
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n"],
+        args=["--questions", "1"],
+    )
+    assert "讲解: 正确。单个等号 = 是赋值" in out
+
+
+def test_choice_explanation_for_wrong_option(monkeypatch, tmp_path):
+    # 选择题答错：讲解点出所选错误选项的问题所在
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "0\n"],
+        args=["--questions", "1"],
+    )
+    assert "讲解: x == 5 是比较运算" in out
+    assert "得分: 0.00" in out
+
+
+def test_fill_still_shows_explanation(monkeypatch, tmp_path):
+    # 非选择题不受逐选项讲解影响，仍显示「要点」
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n", "90\n", "2\n", "70\n", "[1, 2, 3]\n"],
+        args=["--questions", "3"],
+    )
+    assert "要点: b = a 让 b 与 a 指向同一个列表对象" in out

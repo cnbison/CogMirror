@@ -285,7 +285,15 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
                 else:
                     print(f"  用例 {d.get('args')}: 期望 {d.get('expected')}, "
                           f"得到 {d.get('got')} {'✓' if d.get('passed') else '✗'}")
-        if q.explanation:
+        if q.qtype == "choice" and q.option_explanations:
+            # 选择题逐选项讲解：点出所选选项为何对/错（错选正是要澄清的误解）
+            try:
+                chosen = int(answer.strip())
+            except ValueError:
+                chosen = -1
+            if 0 <= chosen < len(q.option_explanations):
+                print(f"  讲解: {q.option_explanations[chosen]}")
+        elif q.explanation:
             print(f"  要点: {q.explanation}")
         tc_before = state.C.tc_states.get(q.skill_id)
         prev_tc_status = tc_before.status if tc_before else None
