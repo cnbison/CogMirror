@@ -1,6 +1,7 @@
 """CLI 端到端集成测试（Phase 0 链路：做题 -> 5D 更新 -> 地图展示）."""
 
 import argparse
+import copy
 import io
 import sys
 
@@ -653,4 +654,103 @@ def test_session_eof_midway_ends_gracefully(monkeypatch, tmp_path):
     )
     assert "输入已结束" in out
     assert "Traceback" not in out
+    assert "你的认知地图" in out
+
+
+# ── 欢迎回来进度概览 + 与上次相比（2026-08-27）──────────────────────
+
+
+def test_welcome_progress_dominant(monkeypatch, tmp_path):
+    # 返回用户：进度概览带上次主导层级；map-only 不答题 -> 无「与上次相比」段
+    run_cli(monkeypatch, tmp_path,
+            answers=["80\n", "1\n", "90\n", "2\n"],
+            args=["--questions", "2"])
+    _, out = run_cli(monkeypatch, tmp_path, answers=[], args=["--map-only"])
+    assert "进度概览" in out
+    assert "上次主导层级：L2 理解" in out
+    assert "[与上次相比]" not in out
+
+
+def test_welcome_progress_liminal(monkeypatch, tmp_path):
+    # 返回用户：liminal 临界概念进度概览露出剩余跨越次数
+    run_cli(monkeypatch, tmp_path, answers=_LOOP_L3_ANSWERS + ["n\n"],
+            args=["--topic", "python.loops", "--level", "L3", "--questions", "3"])
+    _, out = run_cli(monkeypatch, tmp_path, answers=[], args=["--map-only"])
+    assert "进度概览" in out
+    assert "临界概念跨越中" in out
+    assert "再答对 3 次 L3+ 题即跨越" in out
+
+
+def test_map_delta_first_session(monkeypatch, tmp_path):
+    # 首轮答题：出现「与上次相比」段，主导层级首次确定
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n", "90\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    assert "[与上次相比]" in out
+    assert "主导层级首次确定" in out
+    assert "L2 理解" in out
+
+
+def test_map_delta_crossed_tc():
+    # 6 次 loops-L3 全对（liminal -> post_liminal）-> 新跨越临界概念出现在对比段
+    engine = cli.BeliefEngine()
+    bank = cli.QuestionBank()
+    engine.l2.register_items_bulk(bank.mirt_items())
+    prev = engine.create_initial_state("t1")
+    snap = copy.deepcopy(prev)
+    for i in range(6):
+        prev = engine.update(prev, cli.Observation(
+            skill_id="python.loops", problem_id=f"tcq{i}", score=1.0,
+            bloom_level=cli.BloomLevel.APPLY, self_confidence=None,
+            explanation_text=""))
+    lines = cli._map_delta_lines(engine, prev, snap)
+    assert any("新跨越的临界概念" in l and "循环" in l for l in lines)
+    assert any("主导层级首次确定" in l for l in lines)
+
+
+def test_map_delta_dominant_change():
+    # 主导层级变化（L1 记忆 -> L2 理解）出现在对比段
+    engine = cli.BeliefEngine()
+
+    def make(remember, understand):
+        s = engine.create_initial_state("t1")
+        b = s.bloom_profile
+        b.covered_layers = {cli.BloomLevel.REMEMBER, cli.BloomLevel.UNDERSTAND}
+        b.remember = remember
+        b.understand = understand
+        b.update_dominant()
+        return s
+
+    prev = make(0.74, 0.62)
+    cur = make(0.62, 0.74)
+    lines = cli._map_delta_lines(engine, cur, prev)
+    assert any("主导层级" in l and "L1 记忆" in l and "L2 理解" in l for l in lines)
+
+
+# ── 错题重练 --review（2026-08-27）─────────────────────────────────
+
+
+def test_review_repractices_wrong_questions(monkeypatch, tmp_path):
+    # 首轮 1 题答错 -> --review 重练该错题（题目再次出现）
+    run_cli(monkeypatch, tmp_path,
+            answers=["100\n", "0\n"],
+            args=["--questions", "1"])
+    _, out = run_cli(monkeypatch, tmp_path,
+                     answers=["100\n", "1\n"],
+                     args=["--review"])
+    assert "错题重练：找到 1 道" in out
+    assert "pv-l1-01" in out
+    assert "得分: 1.00" in out
+
+
+def test_review_no_wrong_skips_practice(monkeypatch, tmp_path):
+    # 首轮答对 -> --review 无错题：提示后不进答题，直接出地图
+    run_cli(monkeypatch, tmp_path,
+            answers=["100\n", "1\n"],
+            args=["--questions", "1"])
+    _, out = run_cli(monkeypatch, tmp_path, answers=[], args=["--review"])
+    assert "当前没有需要重练的错题" in out
+    assert "本组共" not in out
     assert "你的认知地图" in out

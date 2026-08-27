@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import sys
 
@@ -136,6 +137,55 @@ def _illusory_live_feedback(state: BeliefState, illusory_before: int) -> str:
             f"——落差有点大，『感觉会』可能掩盖了『其实还没会』，地图会把这个点标出来。")
 
 
+def _welcome_progress(engine: BeliefEngine, state: BeliefState) -> str:
+    """返回用户的进度概览一行（上次主导层级 + 临界概念跨越进度），无则空串."""
+    parts = []
+    if state.bloom_profile.covered_layers:
+        parts.append(f"上次主导层级：{BLOOM_LAYER_LABELS[state.bloom_profile.dominant_layer]}")
+    liminal = [(tid, tc) for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
+    if liminal:
+        detail = "；".join(
+            f"「{_tc_display_name(engine, tid)}」{_tc_remaining_text(engine, tc)}"
+            for tid, tc in liminal)
+        parts.append(f"{len(liminal)} 个临界概念跨越中（{detail}）")
+    return "；".join(parts)
+
+
+def _map_delta_lines(engine: BeliefEngine, state: BeliefState,
+                     prev_state: BeliefState) -> list[str]:
+    """「与上次相比」段的行：K/P/S 维度变化 + C 双侧可测时变化 + 主导层级 + 新跨越临界概念."""
+    lines = []
+    for dim, name in (("K", "知识"), ("P", "程序技能"), ("S", "策略")):
+        cur = getattr(state, dim).mastery_prob
+        prev = getattr(prev_state, dim).mastery_prob
+        d = cur - prev
+        if abs(d) < 0.005:
+            continue
+        sign = "+" if d > 0 else ""
+        lines.append(f"{dim} {name}: {sign}{d:.0%}（{prev:.0%} → {cur:.0%}）")
+    # C 只有两侧都有实测（命中过伪自信）才给数值对比；X MVP 不测，跳过
+    if state.C.illusory_confidence_hits and prev_state.C.illusory_confidence_hits:
+        d = state.C.mastery_prob - prev_state.C.mastery_prob
+        if abs(d) >= 0.005:
+            sign = "+" if d > 0 else ""
+            lines.append(f"C 置信度: {sign}{d:.0%}（{prev_state.C.mastery_prob:.0%} → {state.C.mastery_prob:.0%}）")
+    cur_dom = state.bloom_profile
+    prev_dom = prev_state.bloom_profile
+    if cur_dom.covered_layers:
+        if not prev_dom.covered_layers:
+            lines.append(f"主导层级首次确定：{BLOOM_LAYER_LABELS[cur_dom.dominant_layer]}")
+        elif cur_dom.dominant_layer != prev_dom.dominant_layer:
+            lines.append(f"主导层级：{BLOOM_LAYER_LABELS[prev_dom.dominant_layer]} → "
+                         f"{BLOOM_LAYER_LABELS[cur_dom.dominant_layer]}")
+    prev_crossed = {tid for tid, tc in prev_state.C.tc_states.items() if tc.status == "post_liminal"}
+    cur_crossed = {tid for tid, tc in state.C.tc_states.items() if tc.status == "post_liminal"}
+    new_crossed = sorted(cur_crossed - prev_crossed)
+    if new_crossed:
+        names = "、".join(_tc_display_name(engine, tid) for tid in new_crossed)
+        lines.append(f"新跨越的临界概念：{names}")
+    return lines
+
+
 def _print_welcome() -> None:
     """首次运行的上手说明：让第一次用的人不靠文档也能跑完一组题."""
     print()
@@ -186,10 +236,25 @@ def read_answer(question) -> str:
     return "\n".join(lines)
 
 
+def _wrong_problem_ids(db: Database, user_id: str) -> list[str]:
+    """错题集：每个 problem_id 最近一次得分 < 0.6 的题.
+
+    load_responses 按 response_id 升序返回，顺序覆盖即可取到每题最新一次得分。
+    """
+    latest: dict[str, float] = {}
+    for r in db.load_responses(user_id):
+        latest[r["problem_id"]] = r["score"]
+    return [pid for pid, score in latest.items() if score < 0.6]
+
+
 def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
                 db: Database, n_questions: int, topic: str = "",
-                level: BloomLevel | None = None) -> BeliefState:
+                level: BloomLevel | None = None,
+                problem_ids: list[str] | None = None) -> BeliefState:
     selected = bank.all_questions()
+    if problem_ids is not None:
+        wanted = set(problem_ids)
+        selected = [q for q in selected if q.problem_id in wanted]
     if topic:
         selected = [q for q in selected if q.topic == topic]
     if level is not None:
@@ -247,7 +312,8 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
 
 
 def print_map(engine: BeliefEngine, state: BeliefState,
-              covered_bloom: set[BloomLevel] | None = None) -> None:
+              covered_bloom: set[BloomLevel] | None = None,
+              prev_state: BeliefState | None = None) -> None:
     print("\n" + "═" * 56)
     print("你的认知地图")
     print("═" * 56)
@@ -277,6 +343,13 @@ def print_map(engine: BeliefEngine, state: BeliefState,
                 print(f"  {dim} {label:<16} 暂无自评数据，暂未测量")
             continue
         print(f"  {dim} {label:<16} {_bar(d.mastery_prob)}")
+
+    if prev_state is not None:
+        delta_lines = _map_delta_lines(engine, state, prev_state)
+        if delta_lines:
+            print("\n[与上次相比]")
+            for line in delta_lines:
+                print("  " + line)
 
     covered_bloom = covered_bloom or set(BloomLevel)
     print("\n[Bloom 六层分布]（各层掌握概率）")
@@ -468,6 +541,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--level", type=_parse_level, default=None,
                         help="只练指定 Bloom 层级（如 L3 或 APPLY）")
     parser.add_argument("--map-only", action="store_true", help="只看认知地图，不答题")
+    parser.add_argument("--review", action="store_true",
+                        help="重练全部错题（最近一次得分 < 60% 的题）")
     parser.add_argument("--export", action="store_true",
                         help="导出该用户全部作答数据为 JSON（成人向合规：可导出）")
     parser.add_argument("--delete", action="store_true",
@@ -497,13 +572,29 @@ def main(argv: list[str] | None = None) -> int:
         ]
         engine.set_history(args.user, history)
         print(f"欢迎回来，{args.user}（已完成 {len(history)} 次作答）。")
+        overview = _welcome_progress(engine, state)
+        if overview:
+            print(f"  进度概览：{overview}")
 
-    if not args.map_only:
-        state = run_session(engine, bank, state, db, args.questions,
-                            topic=args.topic, level=args.level)
+    review_ids = None
+    if args.review:
+        review_ids = _wrong_problem_ids(db, args.user)
+        if review_ids:
+            print(f"错题重练：找到 {len(review_ids)} 道最近一次得分不足 60% 的题。")
+        else:
+            print("当前没有需要重练的错题（最近一次得分都 ≥ 60%）。")
+
+    prev_state = None
+    if not (args.map_only or review_ids == []):
+        # engine.update 原地修改 state，必须深拷贝一份作为「与上次相比」基准
+        prev_state = copy.deepcopy(state)
+        state = run_session(engine, bank, state, db,
+                            len(review_ids) if review_ids else args.questions,
+                            topic=args.topic, level=args.level,
+                            problem_ids=review_ids)
 
     covered_bloom = {q.bloom_level for q in bank.all_questions()}
-    print_map(engine, state, covered_bloom)
+    print_map(engine, state, covered_bloom, prev_state=prev_state)
 
     # 按建议直达练习：地图末尾问是否继续练建议的题组，直到无建议或用户拒绝。
     # 一轮练习后重渲染地图（liminal 概念可能因此跨过），状态经 db 持久化。
@@ -521,8 +612,9 @@ def main(argv: list[str] | None = None) -> int:
             break  # 非交互/输入耗尽 -> 视为拒绝
         if ans != "y":
             break
+        prev_round = copy.deepcopy(state)
         state = run_session(engine, bank, state, db, 3, topic=topic, level=level)
-        print_map(engine, state, covered_bloom)
+        print_map(engine, state, covered_bloom, prev_state=prev_round)
 
     db.close()
     return 0
