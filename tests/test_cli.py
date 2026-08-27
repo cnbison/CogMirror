@@ -182,6 +182,41 @@ def test_liminal_live_feedback_unknown_skill_silent():
         engine, state, "python.nonexistent", 1.0, cli.BloomLevel.APPLY, None) == ""
 
 
+def test_illusory_live_feedback_hit_and_silent():
+    engine = cli.BeliefEngine()
+    bank = cli.QuestionBank()
+    engine.l2.register_items_bulk(bank.mirt_items())
+    state = engine.create_initial_state("t1")
+    # 自评高 + 答错 -> 命中，当题点出
+    before = len(state.C.illusory_confidence_hits)
+    state = engine.update(state, cli.Observation(
+        skill_id="python.variables", problem_id="pv-l1-01", score=0.0,
+        bloom_level=cli.BloomLevel.REMEMBER, self_confidence=0.9, explanation_text=""))
+    line = cli._illusory_live_feedback(state, before)
+    assert "伪自信提示" in line
+    assert "自评 90%" in line and "实际得分 0%" in line
+    # 自评高 + 答对 -> 未命中，静默
+    before = len(state.C.illusory_confidence_hits)
+    state = engine.update(state, cli.Observation(
+        skill_id="python.variables", problem_id="pv-l2-01", score=1.0,
+        bloom_level=cli.BloomLevel.UNDERSTAND, self_confidence=0.9, explanation_text=""))
+    line = cli._illusory_live_feedback(state, before)
+    assert line == ""
+
+
+def test_illusory_live_feedback_end_to_end(monkeypatch, tmp_path):
+    # 自评 100 + 答错 2 题 -> 每题当题点出，地图汇总仍在
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["100\n", "0\n", "100\n", "0\n"],
+        args=["--questions", "2"],
+    )
+    assert out.count("伪自信提示") == 2
+    assert "自评 100%" in out
+    assert "实际得分 0%" in out
+    assert "发现 2 处失准" in out
+
+
 def test_map_only_and_restore(monkeypatch, tmp_path):
     run_cli(
         monkeypatch, tmp_path,

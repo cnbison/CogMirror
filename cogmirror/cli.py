@@ -108,6 +108,19 @@ def _liminal_live_feedback(engine: BeliefEngine, state: BeliefState,
     return ""
 
 
+def _illusory_live_feedback(state: BeliefState, illusory_before: int) -> str:
+    """伪自信逐题提示：本题新命中伪自信时当题点出（自评 vs 实际落差），否则空串.
+
+    引擎 update 每次最多追加一条伪自信命中，用命中数是否增加判断本题是否新命中。
+    """
+    hits = state.C.illusory_confidence_hits
+    if len(hits) <= illusory_before:
+        return ""
+    h = hits[-1]
+    return (f"伪自信提示：你自评 {h.self_confidence:.0%}，但这题实际得分 {h.score:.0%}"
+            f"——落差有点大，『感觉会』可能掩盖了『其实还没会』，地图会把这个点标出来。")
+
+
 def ask_self_confidence() -> float | None:
     while True:
         # 末尾 \n：跳过自评（直接回车）时下一行提示另起一行，避免与选项粘连
@@ -173,6 +186,7 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
             print(f"  要点: {q.explanation}")
         tc_before = state.C.tc_states.get(q.skill_id)
         prev_tc_status = tc_before.status if tc_before else None
+        illusory_before = len(state.C.illusory_confidence_hits)
         obs = Observation(
             skill_id=q.skill_id, problem_id=q.problem_id, score=score,
             bloom_level=q.bloom_level, self_confidence=self_conf,
@@ -186,6 +200,9 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
                                       q.bloom_level, prev_tc_status)
         if live:
             print(f"  {live}")
+        illusory_line = _illusory_live_feedback(state, illusory_before)
+        if illusory_line:
+            print(f"  {illusory_line}")
         print()
     db.save_state(state)
     return state
