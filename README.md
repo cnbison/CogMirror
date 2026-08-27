@@ -4,14 +4,14 @@
 
 ## 当前状态（两条线分开汇报，见 GOVERNANCE 规则5）
 
-- **工程线**：Phase 0 静态题库最小链路可运行——做题（静态题库 + 确定性 partial credit 判分）→ 5D 信念更新（K/P/S/C/X）→ 命令行认知地图（5 维状态 / Bloom 六层 / 伪自信 / 临界概念 / 一句话建议）。认知地图三大核心元素（伪自信 / 临界概念 / 一句话建议）已全部做成"做题当下的实时信号"。题库 51 题（5 个 topic × Bloom L1-L6 全覆盖，2026-08-27 补齐 L5/L6），**243 项自动化测试通过**。自测记录见 [SELF-TEST-CHECKLIST.md](./SELF-TEST-CHECKLIST.md)
+- **工程线**：Phase 0 静态题库最小链路可运行——做题（静态题库 + 确定性 partial credit 判分）→ 5D 信念更新（K/P/S/C/X）→ 命令行认知地图（5 维状态 / Bloom 六层 / 伪自信 / 临界概念 / 一句话建议）。认知地图三大核心元素（伪自信 / 临界概念 / 一句话建议）已全部做成"做题当下的实时信号"。题库 51 题（5 个 topic × Bloom L1-L6 全覆盖，2026-08-27 补齐 L5/L6），**259 项自动化测试通过**。近期功能：29 道选择题逐选项讲解、错题重练 `--review`、认知地图「与上次相比」对比段、返回用户进度概览。自测记录见 [SELF-TEST-CHECKLIST.md](./SELF-TEST-CHECKLIST.md)
 - **验证线**：暂无正式真实用户验证结论，当前全部为开发者自测（数据不计入正式样本）。Phase 0.5 对话式诊断 spike 已收口（2026-08-26，三轮 n=1 方向一致：对话能力估计 ≈ 题库锚点或略低，无系统性高估）——**P0 判分仍以确定性静态题库为核心，对话式诊断作增强/技术预研**。真人测试**推迟**：当前 CLI 还不够好用、UI 不够美观，等项目更完善后再交给身边人试
 
 ## 快速开始
 
 ```bash
 pip install -e ".[dev]"
-pytest                      # 跑测试（当前 243 项）
+pytest                      # 跑测试（当前 259 项）
 cogmirror                   # 交互式答题 + 认知地图（或 python -m cogmirror.cli）
 ```
 
@@ -23,6 +23,7 @@ cogmirror                   # 交互式答题 + 认知地图（或 python -m cog
 | `cogmirror --questions 3` | 本次做 3 道题 |
 | `cogmirror --topic python.loops --level L3` | 只练指定 topic / 层级（L1-L6 或层名） |
 | `cogmirror --map-only` | 只看地图不答题 |
+| `cogmirror --review` | 重练全部错题（最近一次得分 < 60% 的题） |
 | `cogmirror --export` | 导出自己的全部数据为 JSON（合规：可导出） |
 | `cogmirror --delete` | 删除自己的全部数据（合规：可删除，需输入 DELETE 确认） |
 | `cogmirror --help` | 全部命令与参数 |
