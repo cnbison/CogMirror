@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from cogmirror import cli
+from cogmirror.belief_state import IllusoryConfidenceHit, TCState
 
 
 def run_cli(monkeypatch, tmp_path, answers, args):
@@ -31,6 +32,89 @@ def test_session_then_map(monkeypatch, tmp_path):
     assert "[Bloom 六层分布]" in out
     assert "得分: 1.00" in out
     assert "[一句话建议]" in out
+
+
+def test_map_includes_interpretation_section(monkeypatch, tmp_path):
+    # 整体解读段渲染在地图标题下方，先结论后证据
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n", "90\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    idx = out.index("你的认知地图")
+    assert "[整体解读]" in out[idx:]
+    assert "整体掌握良好" in out
+    assert "作答样本还少" in out
+    assert "一句话建议" in out
+
+
+def test_map_interpretation_no_history():
+    engine = cli.BeliefEngine()
+    state = engine.create_initial_state("t1")
+    s = cli.map_interpretation(engine, state)
+    assert "没有作答记录" in s
+
+
+def test_map_interpretation_kp_gap_clause():
+    # 知识记忆明显强于程序技能（K 0.9 / P 0.5）-> 解读段点出「概念懂、转代码还差一步」
+    engine = cli.BeliefEngine()
+    state = engine.create_initial_state("t1")
+    state.K.mastery_prob = 0.9
+    state.P.mastery_prob = 0.5
+    engine.set_history("t1", [{"score": 1.0}, {"score": 1.0}, {"score": 0.4}])
+    s = cli.map_interpretation(engine, state)
+    assert "知识记忆" in s and "程序技能" in s
+    assert "部分正确" in s
+    assert "还在建立中" in s
+
+
+def test_map_interpretation_p_over_k_clause():
+    # 反向：程序技能强于知识记忆 -> 解读段如实指出
+    engine = cli.BeliefEngine()
+    state = engine.create_initial_state("t1")
+    state.K.mastery_prob = 0.4
+    state.P.mastery_prob = 0.8
+    engine.set_history("t1", [{"score": 1.0}, {"score": 1.0}])
+    s = cli.map_interpretation(engine, state)
+    assert "程序技能" in s
+    assert "超过背概念" in s
+
+
+def test_map_interpretation_no_dim_claim_when_both_low():
+    # 回归（真机发现）：全错学习者 K 0.24 / P 0.40 相对差距不小但都未掌握，
+    # 不应被读成「程序技能更扎实/超过背概念」——维度结论只在"确实掌握"水平才下
+    engine = cli.BeliefEngine()
+    state = engine.create_initial_state("t1")
+    state.K.mastery_prob = 0.24
+    state.P.mastery_prob = 0.40
+    engine.set_history("t1", [{"score": 0.0}, {"score": 0.0}])
+    s = cli.map_interpretation(engine, state)
+    assert "整体还比较薄弱" in s
+    assert "超过背概念" not in s
+    assert "还在建立中" not in s
+
+
+def test_map_interpretation_illusory_clause():
+    engine = cli.BeliefEngine()
+    state = engine.create_initial_state("t1")
+    state.C.illusory_confidence_hits.append(IllusoryConfidenceHit(
+        problem_id="q1", self_confidence=0.9, score=0.0, gap=0.9))
+    engine.set_history("t1", [{"score": 1.0}, {"score": 0.0}])
+    s = cli.map_interpretation(engine, state)
+    assert "1 处伪自信" in s
+    assert "以为会了其实没会" in s
+
+
+def test_map_interpretation_liminal_clause():
+    engine = cli.BeliefEngine()
+    state = engine.create_initial_state("t1")
+    state.C.tc_states["python.loops"] = TCState(
+        tc_id="TC_python_loops", status="liminal", progress=0.9)
+    engine.set_history("t1", [{"score": 1.0}, {"score": 1.0}, {"score": 1.0}])
+    s = cli.map_interpretation(engine, state)
+    assert "循环" in s
+    assert "正在跨越中" in s
+    assert "中间态" in s
 
 
 def test_map_only_and_restore(monkeypatch, tmp_path):

@@ -166,6 +166,9 @@ def print_map(engine: BeliefEngine, state: BeliefState,
     print("你的认知地图")
     print("═" * 56)
 
+    print("\n[整体解读]")
+    print("  " + map_interpretation(engine, state))
+
     print("\n[5 维状态]（掌握概率）")
     history = engine.get_history(state.user_id)
     n_selfconf = sum(1 for h in history if h.get("self_confidence") is not None)
@@ -231,6 +234,64 @@ def print_map(engine: BeliefEngine, state: BeliefState,
     if cmd:
         print(f"  立刻练习：{cmd}")
     print()
+
+
+def map_interpretation(engine: BeliefEngine, state: BeliefState) -> str:
+    """整体解读段：把地图各分节的信号综合成一段「你现在处于什么状态、为什么、下一步」。
+
+    只做综合与证据回溯，不重复下方分节已有的说明文案；样本少时如实说明信号不稳定。
+    """
+    history = engine.get_history(state.user_id)
+    if not history:
+        return ("你还没有作答记录。完成一组题后，系统才能画出有依据的认知地图"
+                "（当前显示的是先验默认值）。")
+
+    n = len(history)
+    n_correct = sum(1 for h in history if (h.get("score") or 0.0) >= 0.6)
+    n_partial = sum(1 for h in history if 0.0 < (h.get("score") or 0.0) < 0.6)
+    n_wrong = sum(1 for h in history if (h.get("score") or 0.0) == 0.0)
+    n_illusory = len(state.C.illusory_confidence_hits)
+
+    rate = n_correct / n
+    if rate >= 0.8:
+        tone = "整体掌握良好"
+    elif rate >= 0.6:
+        tone = "整体掌握处于中间水平，有扎实的部分，也有还没稳的部分"
+    else:
+        tone = "整体还比较薄弱，不少题还没有真正掌握"
+
+    dist = f"{n} 道题里 {n_correct} 道完整答对"
+    if n_partial:
+        dist += f"、{n_partial} 道部分正确"
+    if n_wrong:
+        dist += f"、{n_wrong} 道答错"
+
+    clauses = [f"你目前{tone}：{dist}。"]
+    # MIRT 生效（≥2 次作答）后才谈维度差，避免拿先验值下结论。
+    # 相对差距还要落在「确实掌握」的水平（掌握线 0.5 之上留余量）才下结论：
+    # 全错学习者 P 0.40 > K 0.24 若照常触发，会把 0/5 读成「程序技能更扎实」（真机发现）。
+    if n >= 2:
+        kp_gap = state.K.mastery_prob - state.P.mastery_prob
+        if kp_gap >= 0.15 and state.K.mastery_prob >= 0.6:
+            ev = f"（{n_partial} 道题只对了一半）" if n_partial else ""
+            clauses.append(
+                f"你的「知识记忆」明显强于「程序技能」{ev}——你知道概念，"
+                f"但把概念写成一运行就对的代码，这条能力还在建立中。")
+        elif kp_gap <= -0.15 and state.P.mastery_prob >= 0.6:
+            clauses.append(
+                f"你的「程序技能」比「知识记忆」更扎实——动手写代码的能力已经超过背概念。")
+    if n_illusory:
+        clauses.append(
+            f"最该留意的是 {n_illusory} 处伪自信：自评很高但实际没做对。"
+            f"做错说明「还没会」，伪自信说明「以为会了其实没会」，后者更值得放慢检查。")
+    liminal = [tid for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
+    if liminal:
+        names = "、".join(_tc_display_name(engine, tid) for tid in liminal)
+        clauses.append(f"「{names}」正在跨越中，这是学习的正常中间态，不是退步。")
+    if n < 5:
+        clauses.append(f"作答样本还少（{n} 题），上面的判断会随练习增多而更准。")
+    clauses.append("具体到下一步，见下方「一句话建议」。")
+    return " ".join(clauses)
 
 
 def next_suggestion(engine: BeliefEngine, state: BeliefState) -> str:
