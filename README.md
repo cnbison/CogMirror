@@ -44,6 +44,7 @@ cogmirror                   # 交互式答题 + 认知地图（或 python -m cog
 4. **[GOVERNANCE.md](./GOVERNANCE.md)** —— 6条从ECOS真实教训提炼的硬规则（不虚标、双指标验证、测试者不能是开发者本人、抽象化要有日历约束等）。建议同步进AI协作工具（如Claude Code）的项目级指令文件里，让每次协作都自动遵守。
 5. **[SOMEDAY.md](./SOMEDAY.md)** —— 暂缓事项清单（跨领域认知诊断、双Agent重新引入、插件化等），每项都写明了触发条件，不满足条件前不重新讨论。
 6. **[REFERENCES-dialogue-assessment.md](./REFERENCES-dialogue-assessment.md)** —— Conversation-Based Assessment / 对话知识追踪相关文献整理，支撑Phase 0.5的技术方案设计。
+7. **[docs/implementation-plan.md](./docs/implementation-plan.md)** —— PersonalAGI 功能迁移详细实施方案（P1-P5 执行蓝图，含 A1-A4/B1-B2 六个特性的文件级设计、测试计划、验收标准与决策关卡）。执行时按 Phase 推进，每个 Phase 过关卡后再进入下一个。
 
 ## 一句话共识（避免开工后又飘回ECOS的老路）
 
