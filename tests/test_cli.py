@@ -438,7 +438,8 @@ def test_practice_decline_flow(monkeypatch, tmp_path):
         args=["--topic", "python.loops", "--level", "L3", "--questions", "3"],
     )
     assert "正在跨越中" in out
-    assert out.count("你的认知地图") == 1, "拒绝后不应再渲染地图/出题"
+    # 用地图独有标记计数（"你的认知地图"也会出现在新用户欢迎语里，不能用来数渲染次数）
+    assert out.count("当前主导层级") == 1, "拒绝后不应再渲染地图/出题"
     assert "已跨越" not in out
 
 
@@ -499,3 +500,106 @@ def test_liminal_live_feedback_end_to_end(monkeypatch, tmp_path):
     assert "再答对 2 次 L3+ 题即跨越" in out
     assert "再答对 1 次 L3+ 题即跨越" in out
     assert "已跨越！恭喜" in out
+
+
+# ── 新用户上手引导 + 答题输入帮助（2026-08-27）─────────────────────
+
+
+def test_new_user_shows_welcome(monkeypatch, tmp_path):
+    # 首次运行：新用户见上手说明（怎么答各类题 / 怎么退出 / 怎么导出删除）
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n", "90\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    assert "第一次用？很简单" in out
+    assert "选择题输选项编号" in out
+    assert "单独一行输入 END" in out
+    assert "Ctrl-C" in out
+    assert "cogmirror --export" in out
+
+
+def test_choice_invalid_then_valid_reask(monkeypatch, tmp_path):
+    # 无效选项编号 -> 重问而不是默默判 0；重问后答对得 1.00
+    # pv-l1-01 有 4 个选项（0-3），答案 = 1；pv-l2-01 答案 = 2
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "9\n", "1\n", "90\n", "2\n"],
+        args=["--questions", "2"],
+    )
+    assert "请输入 0-3 之间的选项编号" in out
+    assert out.count("得分: 1.00") == 2
+
+
+# ── 合规数据命令（--export / --delete，2026-08-27）─────────────────
+
+
+def _run_data_command(monkeypatch, db_path, args, stdin_text=""):
+    monkeypatch.setattr(sys, "stdin", io.StringIO(stdin_text))
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    code = cli.main(args)
+    return code, sys.stdout.getvalue()
+
+
+def test_export_dumps_user_data(monkeypatch, tmp_path):
+    from cogmirror.db import Database
+    # 先跑一组题产生数据，再 --export -> JSON 含 user 与 responses
+    run_cli(monkeypatch, tmp_path,
+            answers=["80\n", "1\n", "90\n", "2\n"],
+            args=["--questions", "2"])
+    db_path = str(tmp_path / "cli.db")
+    code, out = _run_data_command(monkeypatch, db_path, ["--user", "t1", "--db", db_path, "--export"])
+    assert code == 0
+    assert '"user_id": "t1"' in out
+    assert '"problem_id": "pv-l1-01"' in out
+    assert "导出请求" in out
+    assert Database(db_path).get_user("t1")["data_export_requested_at"] is not None
+
+
+def test_export_nonexistent_user(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "cli.db")
+    code, out = _run_data_command(monkeypatch, db_path, ["--user", "ghost", "--db", db_path, "--export"])
+    assert code == 0
+    assert "不存在" in out
+
+
+def test_delete_requires_confirmation(monkeypatch, tmp_path):
+    from cogmirror.db import Database
+    run_cli(monkeypatch, tmp_path,
+            answers=["80\n", "1\n", "90\n", "2\n"],
+            args=["--questions", "2"])
+    db_path = str(tmp_path / "cli.db")
+    code, out = _run_data_command(monkeypatch, db_path,
+                                  ["--user", "t1", "--db", db_path, "--delete"], stdin_text="nope\n")
+    assert code == 0
+    assert "已取消" in out
+    assert len(Database(db_path).load_responses("t1")) == 2, "未确认不应删除数据"
+
+
+def test_delete_confirmed_clears_data(monkeypatch, tmp_path):
+    from cogmirror.db import Database
+    run_cli(monkeypatch, tmp_path,
+            answers=["80\n", "1\n", "90\n", "2\n"],
+            args=["--questions", "2"])
+    db_path = str(tmp_path / "cli.db")
+    code, out = _run_data_command(monkeypatch, db_path,
+                                  ["--user", "t1", "--db", db_path, "--delete"], stdin_text="DELETE\n")
+    assert code == 0
+    assert "已删除" in out
+    db = Database(db_path)
+    assert db.load_responses("t1") == [], "确认后应清空作答"
+    assert db.get_user("t1")["data_delete_requested_at"] is not None, "删除请求应记录在用户档案"
+
+
+def test_delete_eof_is_cancel(monkeypatch, tmp_path):
+    # 非交互/输入耗尽（EOF）-> 视为取消，不删除
+    from cogmirror.db import Database
+    run_cli(monkeypatch, tmp_path,
+            answers=["80\n", "1\n", "90\n", "2\n"],
+            args=["--questions", "2"])
+    db_path = str(tmp_path / "cli.db")
+    code, out = _run_data_command(monkeypatch, db_path,
+                                  ["--user", "t1", "--db", db_path, "--delete"], stdin_text="")
+    assert code == 0
+    assert "已取消" in out
+    assert len(Database(db_path).load_responses("t1")) == 2

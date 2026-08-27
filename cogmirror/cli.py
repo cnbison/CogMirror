@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 from .belief_engine import BeliefEngine, Observation
@@ -121,6 +122,18 @@ def _illusory_live_feedback(state: BeliefState, illusory_before: int) -> str:
             f"——落差有点大，『感觉会』可能掩盖了『其实还没会』，地图会把这个点标出来。")
 
 
+def _print_welcome() -> None:
+    """首次运行的上手说明：让第一次用的人不靠文档也能跑完一组题."""
+    print()
+    print("第一次用？很简单：")
+    print("  1) 每道题先自评把握（0-100，直接回车跳过），再作答")
+    print("  2) 选择题输选项编号；填空题直接输答案；写码题写代码，写完单独一行输入 END")
+    print("  3) 答完本组会画出你的认知地图（5D 状态 / Bloom 六层 / 伪自信 / 临界概念 / 一句话建议）")
+    print("  4) 中途想退出用 Ctrl-C；已答的题都会保存，下次接着看地图")
+    print("  查看全部命令：cogmirror --help；导出/删除你的数据：cogmirror --export / --delete")
+    print()
+
+
 def ask_self_confidence() -> float | None:
     while True:
         # 末尾 \n：跳过自评（直接回车）时下一行提示另起一行，避免与选项粘连
@@ -141,10 +154,15 @@ def read_answer(question) -> str:
     if question.qtype == "choice":
         for i, opt in enumerate(question.options):
             print(f"  {i}. {opt}")
-        return input("输入选项编号: ")
+        n = len(question.options)
+        while True:
+            raw = input(f"输入选项编号（0-{n - 1}）: ").strip()
+            if raw.isdigit() and int(raw) in range(n):
+                return raw
+            print(f"请输入 0-{n - 1} 之间的选项编号。")
     if question.qtype == "fill":
-        return input("输入你的答案: ")
-    print("（输入代码，单独一行输入 END 结束）")
+        return input("输入你的答案（直接回车视为未答）: ")
+    print("（写代码：定义题目要求的函数，写完单独一行输入 END 结束）")
     lines = []
     while True:
         line = input()
@@ -388,6 +406,38 @@ def practice_command(engine: BeliefEngine, state: BeliefState) -> str:
     return f"cogmirror --topic {topic}{level_part} --questions 3"
 
 
+def _run_data_command(args) -> int:
+    """--export / --delete：成人向合规的"可导出、可删除"从 CLI 直达.
+
+    数据层的 request/export/delete 已具备，这里补上 CLI 入口（PRD 第9节承诺）。
+    """
+    db = Database(args.db)
+    try:
+        if db.get_user(args.user) is None:
+            print(f"用户 {args.user} 在 {args.db} 中不存在，无需处理。")
+            return 0
+        if args.export:
+            db.request_data_export(args.user)
+            data = db.export_user_data(args.user)
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            print(f"\n已记录用户 {args.user} 的导出请求。")
+            return 0
+        try:
+            confirm = input(f"确认删除用户 {args.user} 的全部作答与认知数据？"
+                            f"此操作不可恢复，输入 DELETE 确认：").strip()
+        except EOFError:
+            print("已取消（未收到确认输入），未删除任何数据。")
+            return 0
+        if confirm != "DELETE":
+            print("已取消，未删除任何数据。")
+            return 0
+        db.request_data_delete(args.user)
+        print(f"已删除 {args.user} 的全部数据（删除请求已记录在用户档案）。")
+        return 0
+    finally:
+        db.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cogmirror", description="编程学习认知教练（Phase 0 CLI）")
     parser.add_argument("--user", default="local_user", help="用户 ID（本地单用户默认 local_user）")
@@ -397,7 +447,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--level", type=_parse_level, default=None,
                         help="只练指定 Bloom 层级（如 L3 或 APPLY）")
     parser.add_argument("--map-only", action="store_true", help="只看认知地图，不答题")
+    parser.add_argument("--export", action="store_true",
+                        help="导出该用户全部作答数据为 JSON（成人向合规：可导出）")
+    parser.add_argument("--delete", action="store_true",
+                        help="删除该用户全部作答与认知数据（成人向合规：可删除，需确认）")
     args = parser.parse_args(argv)
+
+    if args.export or args.delete:
+        return _run_data_command(args)
 
     bank = QuestionBank()
     engine = BeliefEngine()
@@ -409,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
     if state is None:
         state = engine.create_initial_state(args.user)
         print(f"新用户 {args.user}，创建初始状态。")
+        _print_welcome()
     else:
         # 从作答历史恢复引擎内部状态（MIRT 输入）
         history = [
