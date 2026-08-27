@@ -152,7 +152,7 @@ def test_topic_label_chinese_in_suggestion(monkeypatch, tmp_path):
         answers=answers,
         args=["--questions", "5"],
     )
-    suggest_lines = [l for l in out.splitlines() if "目前掌握概率" in l or "建议接下来" in l]
+    suggest_lines = [l for l in out.splitlines() if l.strip().startswith("「")]
     assert suggest_lines, "未找到建议行"
     assert "变量赋值" in suggest_lines[0], f"建议应为中文 topic 名: {suggest_lines[0]}"
     assert "python." not in suggest_lines[0], "建议行不应出现原始 skill id"
@@ -256,3 +256,48 @@ def test_practice_decline_flow(monkeypatch, tmp_path):
     assert "正在跨越中" in out
     assert out.count("你的认知地图") == 1, "拒绝后不应再渲染地图/出题"
     assert "已跨越" not in out
+
+
+def test_suggestion_liminal_includes_remaining():
+    # 建议把"跨越进度"翻译成可行动步骤：已连续答对 N 次，再对 1 次即跨越
+    engine = cli.BeliefEngine()
+    bank = cli.QuestionBank()
+    engine.l2.register_items_bulk(bank.mirt_items())
+    state = engine.create_initial_state("t1")
+    for i in range(5):  # 前 3 次进 liminal，后 2 次 streak=2 -> 再对 1 次即跨越
+        state = engine.update(
+            state, cli.Observation(
+                skill_id="python.loops", problem_id=f"tcq{i}", score=1.0,
+                bloom_level=cli.BloomLevel.APPLY, self_confidence=None,
+                explanation_text="",
+            ))
+    s = cli.next_suggestion(engine, state)
+    assert "循环" in s
+    assert "正在跨越中" in s
+    assert "再答对 1 次 L3+ 题即跨越" in s
+
+
+def test_suggestion_weakest_includes_rationale():
+    # 最弱分支带"为什么"：说明是这个 topic 是当前最弱的一项
+    engine = cli.BeliefEngine()
+    bank = cli.QuestionBank()
+    engine.l2.register_items_bulk(bank.mirt_items())
+    state = engine.create_initial_state("t1")
+    state = engine.update(
+        state, cli.Observation(
+            skill_id="python.variables", problem_id="tcq1", score=0.0,
+            bloom_level=cli.BloomLevel.REMEMBER, self_confidence=None,
+            explanation_text="",
+        ))
+    s = cli.next_suggestion(engine, state)
+    assert "变量赋值" in s
+    assert "当前最弱" in s
+
+
+def test_practice_prompt_includes_remaining(monkeypatch, tmp_path):
+    # 练习交互提示带剩余次数：主轮 3 对进 liminal（streak=0）-> 再对 3 次即跨越
+    _, out = run_cli(
+        monkeypatch, tmp_path, answers=_LOOP_L3_ANSWERS + ["n\n"],
+        args=["--topic", "python.loops", "--level", "L3", "--questions", "3"],
+    )
+    assert "再答对 3 次 L3+ 题即跨越" in out

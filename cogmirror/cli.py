@@ -76,6 +76,13 @@ def _tc_display_name(engine: BeliefEngine, tid: str) -> str:
     return engine.tc_detector.tc_library.get(tid, {}).get("name", tid)
 
 
+def _tc_remaining_text(engine: BeliefEngine, tc) -> str:
+    """liminal 态下距跨越的剩余次数文案（把"跨越进度"翻译成可行动步骤）."""
+    streak = sum(1 for s in tc.liminal_signals if s == "post_liminal_candidate")
+    remaining = max(0, engine.tc_detector.post_liminal_streak - streak)
+    return "即将跨越" if remaining <= 0 else f"再答对 {remaining} 次 L3+ 题即跨越"
+
+
 def ask_self_confidence() -> float | None:
     while True:
         # 末尾 \n：跳过自评（直接回车）时下一行提示另起一行，避免与选项粘连
@@ -209,7 +216,8 @@ def print_map(engine: BeliefEngine, state: BeliefState,
     if liminal:
         print("\n[临界概念] 正在跨越中（这不是退步，是学习的正常中间态）：")
         for tid, tc in liminal:
-            print(f"  {_tc_display_name(engine, tid)}（跨越进度 {tc.progress:.0%}）")
+            print(f"  {_tc_display_name(engine, tid)}（跨越进度 {tc.progress:.0%}，"
+                  f"{_tc_remaining_text(engine, tc)}）")
     if crossed:
         print("\n[临界概念] 已跨越（恭喜，这些概念你已经真正掌握）：")
         for tid in crossed:
@@ -230,13 +238,16 @@ def next_suggestion(engine: BeliefEngine, state: BeliefState) -> str:
     liminal = [tid for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
     if liminal:
         tid = liminal[0]
-        return f"建议接下来做 3 道「{_topic_label(tid)}」的应用题（L3），不建议现在学新概念。"
+        remaining = _tc_remaining_text(engine, state.C.tc_states[tid])
+        return (f"「{_topic_label(tid)}」正在跨越中——{remaining}。"
+                f"建议接下来做 3 道「{_topic_label(tid)}」的应用题（L3），不建议现在学新概念。")
     # 其次：练过的 topic 里 BKT 最弱的
     practiced = engine.l1.all_skills()
     if practiced:
         weakest = min(practiced, key=lambda s: engine.get_bkt_mastery(s))
         if engine.get_bkt_mastery(weakest) < 0.7:
-            return f"「{_topic_label(weakest)}」目前掌握概率 {engine.get_bkt_mastery(weakest):.0%}，建议再做几道对应的基础题巩固。"
+            return (f"「{_topic_label(weakest)}」是当前最弱的一项"
+                    f"（掌握概率 {engine.get_bkt_mastery(weakest):.0%}），建议再做几道对应的基础题巩固。")
         return "已练概念掌握良好，下次可以开启新 topic（比如还没练过的那个）。"
     return "先完成一组题，系统才能给出有依据的建议。"
 
@@ -314,8 +325,10 @@ def main(argv: list[str] | None = None) -> int:
             break
         topic, level = target
         level_txt = "的 L3 题" if level is not None else "的基础题"
+        tc = state.C.tc_states.get(topic)
+        extra = f"（{_tc_remaining_text(engine, tc)}）" if tc and tc.status == "liminal" else ""
         try:
-            ans = input(f"按建议现在练 3 道「{_topic_label(topic)}」{level_txt}吗？[y/N] ").strip().lower()
+            ans = input(f"按建议现在练 3 道「{_topic_label(topic)}」{level_txt}吗？{extra}[y/N] ").strip().lower()
         except EOFError:
             break  # 非交互/输入耗尽 -> 视为拒绝
         if ans != "y":
