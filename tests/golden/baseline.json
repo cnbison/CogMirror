@@ -1,0 +1,360 @@
+{
+  "cases": {
+    "all_correct_loops": {
+      "passed": true,
+      "summary": {
+        "bkt_mastery": {
+          "python.loops": 0.9999815683302955
+        },
+        "bloom": {
+          "analyze": 0.62,
+          "apply": 0.98,
+          "create": 0.62,
+          "evaluate": 0.62,
+          "remember": 0.5,
+          "understand": 0.62
+        },
+        "discount_factor": 1.0,
+        "dominant_bloom": "APPLY",
+        "illusory_hits": 0,
+        "interpretation": "你目前整体掌握良好：8 道题里 8 道完整答对。 你的「程序技能」比「知识记忆」更扎实——动手写代码的能力已经超过背概念。 具体到下一步，见下方「一句话建议」。",
+        "mastery": {
+          "C": 0.5483345017683579,
+          "K": 0.6329550204778467,
+          "P": 0.7990411871121567,
+          "S": 0.7761425128309487,
+          "X": 0.5483345017683579
+        },
+        "misc_hits": 0,
+        "overall_confidence": 0.5379697791780913,
+        "practice": null,
+        "practice_command": "",
+        "suggestion": "已练概念掌握良好，下次可以开启新 topic（比如还没练过的那个）。",
+        "tc": {
+          "python.loops": {
+            "progress": 1.0,
+            "status": "post_liminal"
+          }
+        },
+        "theta": {
+          "C": 0.19394364771230385,
+          "K": 0.5449149613719602,
+          "P": 1.380312516707115,
+          "S": 1.2433265224896841,
+          "X": 0.19394364771230385
+        }
+      }
+    },
+    "all_wrong_variables": {
+      "passed": true,
+      "summary": {
+        "bkt_mastery": {
+          "python.variables": 0.11428561337014584
+        },
+        "bloom": {
+          "analyze": 0.38,
+          "apply": 0.26,
+          "create": 0.5,
+          "evaluate": 0.5,
+          "remember": 0.38,
+          "understand": 0.26
+        },
+        "discount_factor": 1.0,
+        "dominant_bloom": "REMEMBER",
+        "illusory_hits": 0,
+        "interpretation": "你目前整体还比较薄弱，不少题还没有真正掌握：6 道题里 0 道完整答对、6 道答错。 具体到下一步，见下方「一句话建议」。",
+        "mastery": {
+          "C": 0.4685402873067064,
+          "K": 0.22936800543367733,
+          "P": 0.4024509436500441,
+          "S": 0.40676614483701085,
+          "X": 0.4685402873067064
+        },
+        "misc_hits": 0,
+        "overall_confidence": 0.5268113469331577,
+        "practice": [
+          "python.variables",
+          null
+        ],
+        "practice_command": "cogmirror --topic python.variables --questions 3",
+        "suggestion": "「变量赋值」是当前最弱的一项（掌握概率 11%），建议再做几道对应的基础题巩固。",
+        "tc": {
+          "python.variables": {
+            "progress": 0.0,
+            "status": "pre_liminal"
+          }
+        },
+        "theta": {
+          "C": -0.12600530555092695,
+          "K": -1.2118832260407406,
+          "P": -0.3952631728127479,
+          "S": -0.3773502431272372,
+          "X": -0.12600530555092695
+        }
+      }
+    },
+    "calibration_boundary_learner": {
+      "passed": true,
+      "summary": {
+        "bkt_mastery": {
+          "python.loops": 0.11428048279234182
+        },
+        "bloom": {
+          "analyze": 0.38,
+          "apply": 0.428,
+          "create": 0.5,
+          "evaluate": 0.5,
+          "remember": 0.5,
+          "understand": 0.38
+        },
+        "discount_factor": 0.85,
+        "dominant_bloom": "REMEMBER",
+        "illusory_hits": 1,
+        "interpretation": "你目前整体还比较薄弱，不少题还没有真正掌握：4 道题里 0 道完整答对、2 道部分正确、2 道答错。 最该留意的是 1 处伪自信：自评很高但实际没做对。做错说明「还没会」，伪自信说明「以为会了其实没会」，后者更值得放慢检查。 作答样本还少（4 题），上面的判断会随练习增多而更准。 具体到下一步，见下方「一句话建议」。",
+        "mastery": {
+          "C": 0.40849698484827496,
+          "K": 0.3658840908306523,
+          "P": 0.44164924033767744,
+          "S": 0.4256567206439743,
+          "X": 0.48058468805679405
+        },
+        "misc_hits": 0,
+        "overall_confidence": 0.5269594763748446,
+        "practice": [
+          "python.loops",
+          null
+        ],
+        "practice_command": "cogmirror --topic python.loops --questions 3",
+        "suggestion": "「循环」是当前最弱的一项（掌握概率 11%），建议再做几道对应的基础题巩固。",
+        "tc": {
+          "python.loops": {
+            "progress": 0.0,
+            "status": "pre_liminal"
+          }
+        },
+        "theta": {
+          "C": -0.07770031611598266,
+          "K": -0.5499151682365615,
+          "P": -0.23447137330490642,
+          "S": -0.29959406388163956,
+          "X": -0.07770031611598266
+        }
+      }
+    },
+    "liminal_in_progress_functions": {
+      "passed": true,
+      "summary": {
+        "bkt_mastery": {
+          "python.functions": 0.9977011494252874
+        },
+        "bloom": {
+          "analyze": 0.62,
+          "apply": 0.98,
+          "create": 0.5,
+          "evaluate": 0.5,
+          "remember": 0.5,
+          "understand": 0.5
+        },
+        "discount_factor": 1.0,
+        "dominant_bloom": "APPLY",
+        "illusory_hits": 0,
+        "interpretation": "你目前整体掌握良好：5 道题里 5 道完整答对。 你的「程序技能」比「知识记忆」更扎实——动手写代码的能力已经超过背概念。 「函数是输入-输出映射」正在跨越中，这是学习的正常中间态，不是退步。 具体到下一步，见下方「一句话建议」。",
+        "mastery": {
+          "C": 0.5318057523369266,
+          "K": 0.5743455771894952,
+          "P": 0.7501350060848557,
+          "S": 0.6823763017430601,
+          "X": 0.5318057523369266
+        },
+        "misc_hits": 0,
+        "overall_confidence": 0.5270446660565864,
+        "practice": [
+          "python.functions",
+          "APPLY"
+        ],
+        "practice_command": "cogmirror --topic python.functions --level L3 --questions 3",
+        "suggestion": "「函数」正在跨越中——再答对 1 次 L3+ 题即跨越。建议接下来做 3 道「函数」的应用题（L3），不建议现在学新概念。",
+        "tc": {
+          "python.functions": {
+            "progress": 1.0,
+            "status": "liminal"
+          }
+        },
+        "theta": {
+          "C": 0.12739502656668183,
+          "K": 0.29960346301509483,
+          "P": 1.0993324507868167,
+          "S": 0.7647139244980131,
+          "X": 0.12739502656668183
+        }
+      }
+    },
+    "misconception_scope_text": {
+      "passed": true,
+      "summary": {
+        "bkt_mastery": {
+          "python.scope": 0.11424804615400842
+        },
+        "bloom": {
+          "analyze": 0.452,
+          "apply": 0.38,
+          "create": 0.5,
+          "evaluate": 0.5,
+          "remember": 0.5,
+          "understand": 0.38
+        },
+        "discount_factor": 0.6724000000000001,
+        "dominant_bloom": "ANALYZE",
+        "illusory_hits": 0,
+        "interpretation": "你目前整体还比较薄弱，不少题还没有真正掌握：3 道题里 0 道完整答对、1 道部分正确、2 道答错。 作答样本还少（3 题），上面的判断会随练习增多而更准。 具体到下一步，见下方「一句话建议」。",
+        "mastery": {
+          "C": 0.3257430663422453,
+          "K": 0.3829245467592108,
+          "P": 0.399358226747158,
+          "S": 0.4672875829776431,
+          "X": 0.4844483437570572
+        },
+        "misc_hits": 2,
+        "overall_confidence": 0.5207712757561772,
+        "practice": [
+          "python.scope",
+          null
+        ],
+        "practice_command": "cogmirror --topic python.scope --questions 3",
+        "suggestion": "「作用域」是当前最弱的一项（掌握概率 11%），建议再做几道对应的基础题巩固。",
+        "tc": {
+          "python.scope": {
+            "progress": 0.0,
+            "status": "pre_liminal"
+          }
+        },
+        "theta": {
+          "C": -0.06222669651933719,
+          "K": -0.4771533430104042,
+          "P": -0.40813988017143216,
+          "S": -0.13103684573827487,
+          "X": -0.06222669651933719
+        }
+      }
+    },
+    "mixed_partial_credit": {
+      "passed": true,
+      "summary": {
+        "bkt_mastery": {
+          "python.functions": 0.4,
+          "python.loops": 0.11401443220660845,
+          "python.recursion": 0.4,
+          "python.scope": 0.4,
+          "python.variables": 0.16923076923076924
+        },
+        "bloom": {
+          "analyze": 0.38,
+          "apply": 0.572,
+          "create": 0.5,
+          "evaluate": 0.5,
+          "remember": 0.5,
+          "understand": 0.836
+        },
+        "discount_factor": 1.0,
+        "dominant_bloom": "UNDERSTAND",
+        "illusory_hits": 0,
+        "interpretation": "你目前整体还比较薄弱，不少题还没有真正掌握：7 道题里 4 道完整答对、2 道部分正确、1 道答错。 具体到下一步，见下方「一句话建议」。",
+        "mastery": {
+          "C": 0.5140058863169412,
+          "K": 0.6684386139631963,
+          "P": 0.5661481758230246,
+          "S": 0.48303997467162296,
+          "X": 0.5140058863169412
+        },
+        "misc_hits": 0,
+        "overall_confidence": 0.5404355490045776,
+        "practice": [
+          "python.loops",
+          null
+        ],
+        "practice_command": "cogmirror --topic python.loops --questions 3",
+        "suggestion": "「循环」是当前最弱的一项（掌握概率 11%），建议再做几道对应的基础题巩固。",
+        "tc": {
+          "python.functions": {
+            "progress": 0.05,
+            "status": "pre_liminal"
+          },
+          "python.loops": {
+            "progress": 0.0,
+            "status": "pre_liminal"
+          },
+          "python.recursion": {
+            "progress": 0.05,
+            "status": "pre_liminal"
+          },
+          "python.scope": {
+            "progress": 0.3,
+            "status": "pre_liminal"
+          },
+          "python.variables": {
+            "progress": 0.05,
+            "status": "pre_liminal"
+          }
+        },
+        "theta": {
+          "C": 0.05603820530418413,
+          "K": 0.7011315967289815,
+          "P": 0.26615278182462015,
+          "S": -0.06786613754787016,
+          "X": 0.05603820530418413
+        }
+      }
+    },
+    "overconfident_loop_learner": {
+      "passed": true,
+      "summary": {
+        "bkt_mastery": {
+          "python.loops": 0.11428498769310813
+        },
+        "bloom": {
+          "analyze": 0.38,
+          "apply": 0.28400000000000003,
+          "create": 0.5,
+          "evaluate": 0.5,
+          "remember": 0.38,
+          "understand": 0.38
+        },
+        "discount_factor": 0.4437053124999999,
+        "dominant_bloom": "REMEMBER",
+        "illusory_hits": 5,
+        "interpretation": "你目前整体还比较薄弱，不少题还没有真正掌握：5 道题里 0 道完整答对、1 道部分正确、4 道答错。 最该留意的是 5 处伪自信：自评很高但实际没做对。做错说明「还没会」，伪自信说明「以为会了其实没会」，后者更值得放慢检查。 具体到下一步，见下方「一句话建议」。",
+        "mastery": {
+          "C": 0.20805073034315483,
+          "K": 0.28305190776666644,
+          "P": 0.3678342530255807,
+          "S": 0.4053947496017012,
+          "X": 0.4688939358668483
+        },
+        "misc_hits": 0,
+        "overall_confidence": 0.5290744181007148,
+        "practice": [
+          "python.loops",
+          null
+        ],
+        "practice_command": "cogmirror --topic python.loops --questions 3",
+        "suggestion": "「循环」是当前最弱的一项（掌握概率 11%），建议再做几道对应的基础题巩固。",
+        "tc": {
+          "python.loops": {
+            "progress": 0.0,
+            "status": "pre_liminal"
+          }
+        },
+        "theta": {
+          "C": -0.12458515209298547,
+          "K": -0.9293731417154049,
+          "P": -0.5415191803125382,
+          "S": -0.3830364578811783,
+          "X": -0.12458515209298547
+        }
+      }
+    }
+  },
+  "meta": {
+    "note": "黄金基线：引擎在 tests/golden/sequences.py 上的数值快照。更新须带文档化 diff（方案 2.6），对比容差见 runner.TOL。"
+  }
+}

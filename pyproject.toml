@@ -26,3 +26,6 @@ packages = ["cogmirror"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "regression: 黄金回归套件（tests/golden/，P1 基建，引擎行为变更必跑）",
+]
