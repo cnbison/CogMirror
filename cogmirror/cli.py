@@ -17,6 +17,7 @@ from .calibration import CalibrationCurveComputer, compute_ece
 from .db import Database, DEFAULT_DB_PATH
 from .misconception_tracker import MisconceptionTracker
 from .questions import QuestionBank
+from .session import last_session_struggles, multi_session_trend, trend_line
 
 DIM_LABELS = {
     "K": "知识（概念记得住吗）",
@@ -360,14 +361,17 @@ def _calibration_line(engine: BeliefEngine) -> str:
 
 def print_map(engine: BeliefEngine, state: BeliefState,
               covered_bloom: set[BloomLevel] | None = None,
-              prev_state: BeliefState | None = None) -> None:
+              prev_state: BeliefState | None = None,
+              trend: dict | None = None,
+              session_rows: list[dict] | None = None) -> None:
     print("\n" + "═" * 56)
     print("你的认知地图")
     print("═" * 56)
     print("（怎么看：每行条形 = 该维度的掌握概率，越接近 100% 越稳；作答越多，数值越准）")
 
     print("\n[整体解读]")
-    print("  " + map_interpretation(engine, state))
+    print("  " + map_interpretation(engine, state, prev_state=prev_state,
+                                   session_rows=session_rows))
 
     print("\n[5 维状态]（掌握概率）")
     history = engine.get_history(state.user_id)
@@ -459,6 +463,12 @@ def print_map(engine: BeliefEngine, state: BeliefState,
             print(f"  「{_topic_label(skill)}」{days} 天未练，"
                   f"掌握概率从 {peak:.0%} 掉到 {decayed:.0%}")
 
+    line = trend_line(trend or {})
+    if line:
+        n_sess = next(iter(trend.values()))[2] if trend else 0
+        print(f"\n[近几次趋势]（{n_sess} 次会话末对比）")
+        print(f"  {line}")
+
     print("\n[一句话建议]")
     print("  " + next_suggestion(engine, state))
     cmd = practice_command(engine, state)
@@ -467,7 +477,66 @@ def print_map(engine: BeliefEngine, state: BeliefState,
     print()
 
 
-def map_interpretation(engine: BeliefEngine, state: BeliefState) -> str:
+def _dim_attribution(dim: str, delta_line: str, session_rows: list[dict]) -> str:
+    """反思句的「为什么」从句：把维度变化归因到本次会话的具体作答证据.
+
+    归因按 Bloom 层切分（MVP 题库各维度信号的主要来源）：K <- L1/L2 题、
+    P <- L3 题、S <- L4+ 题；无对应层作答（如 MIRT 先验微调产生的 delta）
+    时返回空串--不臆造证据。
+    """
+    layer_names = {"K": "记忆/理解层", "P": "应用层", "S": "分析及以上层"}
+    bloom_fields = {"K": ("REMEMBER", "UNDERSTAND"), "P": ("APPLY",), "S": ("ANALYZE",)}
+    levels = bloom_fields.get(dim)
+    if not levels:
+        return ""
+    rows = [r for r in session_rows if str(r.get("bloom_level", "")).upper() in levels]
+    if not rows:
+        return ""
+    n_correct = sum(1 for r in rows if (r.get("score") or 0.0) >= 0.6)
+    n_wrong = len(rows) - n_correct
+    # 归因只在方向一致时给出：维度上升归因答对、下降归因答错。方向相反
+    # （如 MIRT 全历史重估让 K 在本会话答对时仍下降）-> 无从归因，不臆造
+    if "+" in delta_line:
+        n, what = n_correct, "题答对"
+    else:
+        n, what = n_wrong, "题答错"
+    if n == 0:
+        return ""
+    return f"{n} 道{layer_names[dim]}{what}"
+
+
+def _session_reflection(engine: BeliefEngine, state: BeliefState,
+                        prev_state: BeliefState | None,
+                        session_rows: list[dict] | None) -> str:
+    """B2 反思句：「本次会话变了什么 + 为什么」，1 句、证据可回溯.
+
+    无 prev_state（如 --map-only / 黄金回归 runner）或无 delta 或本次无
+    作答 -> 空串（不声称有变化，方案 6.6 DISPROVEN 点）。下一步不在本句
+    重复，由解读段既有收尾句引用「一句话建议」承担。
+    """
+    if prev_state is None or not session_rows:
+        return ""
+    delta_lines = _map_delta_lines(engine, state, prev_state)
+    if not delta_lines:
+        return ""
+    # 只取维度数值变化行做归因（主导层级/新跨越行自带语义，不归因）
+    dim_lines = [l for l in delta_lines if l[:2] in ("K ", "P ", "S ")][:2]
+    parts = []
+    for line in dim_lines:
+        clause = f"本次{line}"
+        why = _dim_attribution(line[0], line, session_rows)
+        if why:
+            clause += f"--{why}"
+        parts.append(clause)
+    if not parts:
+        # 无维度数值变化（只有层级/跨越类 delta）-> 只报变化不归因
+        parts = [f"本次{delta_lines[0]}"]
+    return "；".join(parts) + "。"
+
+
+def map_interpretation(engine: BeliefEngine, state: BeliefState,
+                       prev_state: BeliefState | None = None,
+                       session_rows: list[dict] | None = None) -> str:
     """整体解读段：把地图各分节的信号综合成一段「你现在处于什么状态、为什么、下一步」。
 
     只做综合与证据回溯，不重复下方分节已有的说明文案；样本少时如实说明信号不稳定。
@@ -521,6 +590,9 @@ def map_interpretation(engine: BeliefEngine, state: BeliefState) -> str:
         clauses.append(f"「{names}」正在跨越中，这是学习的正常中间态，不是退步。")
     if n < 5:
         clauses.append(f"作答样本还少（{n} 题），上面的判断会随练习增多而更准。")
+    reflection = _session_reflection(engine, state, prev_state, session_rows)
+    if reflection:
+        clauses.append(reflection)
     clauses.append("具体到下一步，见下方「一句话建议」。")
     return " ".join(clauses)
 
@@ -699,6 +771,12 @@ def main(argv: list[str] | None = None) -> int:
         overview = _welcome_progress(engine, state)
         if overview:
             print(f"  进度概览：{overview}")
+        # P5 B1：上次会话卡点主动浮现（跨会话"相关历史召回"的本地退化版）
+        struggles = last_session_struggles(db, args.user)
+        if struggles:
+            names = "、".join(_topic_label(s) for s in struggles[:3])
+            print(f"  上次卡住：{names}"
+                  + ("等" if len(struggles) > 3 else ""))
 
     review_ids = None
     if args.review:
@@ -719,7 +797,10 @@ def main(argv: list[str] | None = None) -> int:
         _refresh_decay_view(engine, db, args.user)
 
     covered_bloom = {q.bloom_level for q in bank.all_questions()}
-    print_map(engine, state, covered_bloom, prev_state=prev_state)
+    all_rows = db.load_responses(args.user)
+    print_map(engine, state, covered_bloom, prev_state=prev_state,
+              trend=multi_session_trend(db, args.user),
+              session_rows=all_rows[n_rows_before:])
 
     # 按建议直达练习：地图末尾问是否继续练建议的题组，直到无建议或用户拒绝。
     # 一轮练习后重渲染地图（liminal 概念可能因此跨过），状态经 db 持久化。
@@ -746,7 +827,10 @@ def main(argv: list[str] | None = None) -> int:
         prev_round = copy.deepcopy(state)
         state = run_session(engine, bank, state, db, 3, topic=topic, level=level)
         _refresh_decay_view(engine, db, args.user)
-        print_map(engine, state, covered_bloom, prev_state=prev_round)
+        all_rows = db.load_responses(args.user)
+        print_map(engine, state, covered_bloom, prev_state=prev_round,
+                  trend=multi_session_trend(db, args.user),
+                  session_rows=all_rows[n_rows_before:])
 
     # P4 收尾：把本次会话的 misconception 命中与同 skill 后续表现对账，
     # 证据计数落库（下次会话恢复，命中置信度随之变化）

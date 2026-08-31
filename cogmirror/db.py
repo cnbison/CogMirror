@@ -173,11 +173,11 @@ class Database:
 
     # ── belief snapshots ────────────────────────────────────────────
 
-    def save_state(self, state: BeliefState) -> None:
+    def save_state(self, state: BeliefState, created_at: datetime | None = None) -> None:
         self._conn.execute(
             "INSERT INTO belief_snapshots (user_id, state_json, created_at) VALUES (?, ?, ?)",
             (state.user_id, json.dumps(state.to_dict(), ensure_ascii=False),
-             datetime.now().isoformat()),
+             (created_at or datetime.now()).isoformat()),
         )
         self._conn.commit()
 
@@ -190,6 +190,15 @@ class Database:
         if row is None:
             return None
         return BeliefState.from_dict(json.loads(row["state_json"]))
+
+    def load_snapshots(self, user_id: str) -> list[dict]:
+        """加载全部快照（升序，含 state_json/created_at）--纵向档案聚合输入（P5）."""
+        rows = self._conn.execute(
+            "SELECT snapshot_id, state_json, created_at FROM belief_snapshots "
+            "WHERE user_id = ? ORDER BY snapshot_id",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     # ── 导出 ────────────────────────────────────────────────────────
 
