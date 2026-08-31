@@ -30,6 +30,7 @@ from .belief_state import (
     MisconceptionHit,
 )
 from .bkt import BKTEvolutionLayer, EvolutionConfig
+from .calibration import CalibrationCurve, CalibrationCurveComputer
 from .content.misconceptions import PythonBasicsMisconceptionLibrary
 from .mirt import BiFactorMIRT5D, MIRTConfig
 from .tc import TCStateDetector
@@ -37,8 +38,12 @@ from .tc import TCStateDetector
 # 伪自信判定阈值：自评置信度 - 实际得分 >= 该值且自评较高时记为伪自信
 ILLUSORY_GAP_THRESHOLD = 0.5
 ILLUSORY_SELF_CONF_MIN = 0.7
-# 每次伪自信命中对 C 维度掌握概率的折扣：自评与表现脱节 -> C 下调
+# 伪自信命中对 C 维度掌握概率的折扣：自评与表现脱节 -> C 下调。
+# 无校准曲线（数据不足）时的回退值；曲线驱动路径见 _calibrated_discount
 ILLUSORY_MASTERY_DISCOUNT = 0.15
+# 曲线驱动折扣的夹取范围：下限防过激惩罚、上限防自评满分桶把 C 打穿
+CALIBRATED_DISCOUNT_MIN = 0.05
+CALIBRATED_DISCOUNT_MAX = 0.5
 
 HISTORY_MAXLEN = 100
 
@@ -131,6 +136,9 @@ class BeliefEngine:
         self.misconception_library = misconception_library or PythonBasicsMisconceptionLibrary()
         # user_id -> 响应历史（MIRT 输入 + 详情回看）
         self._response_history: Dict[str, List[Dict[str, Any]]] = {}
+        # 校准曲线（P2）：None = 无校准数据，伪自信折扣走固定回退值。
+        # 由 CLI 从 responses 历史重算后注入（单用户派生视图，不落库）
+        self.calibration_curves: Optional[List[CalibrationCurve]] = None
 
     # ── 状态创建 ────────────────────────────────────────────────────
 
@@ -228,9 +236,12 @@ class BeliefEngine:
                     timestamp=observation.timestamp,
                 ))
                 state.C.illusory_confidence_flag = True
-                # C 维度反馈：伪自信命中 = 自评与表现脱节，累计进持久折扣因子
+                # C 维度反馈：伪自信命中 = 自评与表现脱节，累计进持久折扣因子。
+                # 折扣幅度曲线驱动（自评所在桶的历史真实答对率），
+                # 数据不足回退固定值（方案 P2）
+                discount = self._calibrated_discount(float(observation.self_confidence))
                 state.C.discount_factor = min(
-                    state.C.discount_factor * (1.0 - ILLUSORY_MASTERY_DISCOUNT), 1.0)
+                    state.C.discount_factor * (1.0 - discount), 1.0)
 
         # C 维度掌握概率 = sigmoid(theta_C) × discount_factor（伪自信/misconception
         # 校准信号持久化）。必须在每次更新末尾重算：Step 3 的 MIRT 会整体重算
@@ -265,6 +276,10 @@ class BeliefEngine:
         """获取 BKT 当前掌握概率."""
         return self.l1.get_mastery(skill_id)
 
+    def set_calibration(self, curves: List[CalibrationCurve] | None) -> None:
+        """注入自评校准曲线（CLI 从 responses 历史重算后调用）."""
+        self.calibration_curves = curves
+
     def get_theta(self, state: BeliefState) -> np.ndarray:
         """获取当前 5D θ."""
         return state.theta_vector()
@@ -276,6 +291,22 @@ class BeliefEngine:
             self.l1.reset_skill(skill)
 
     # ── 内部 ────────────────────────────────────────────────────────
+
+    def _calibrated_discount(self, self_confidence: float) -> float:
+        """伪自信折扣幅度：校准曲线驱动，数据不足回退固定值.
+
+        expected = 自评所在桶的历史真实答对率（Laplace 平滑）；
+        discount = 1 - expected，夹取 [0.05, 0.5]（CALIBRATED_* 注释）。
+        曲线缺失或桶样本 < MIN_BUCKET_N 时返回 ILLUSORY_MASTERY_DISCOUNT
+        （与迁移前行为一致，黄金回归基线因此不受影响）。
+        """
+        if self.calibration_curves:
+            expected = CalibrationCurveComputer.expected_accuracy(
+                self.calibration_curves, self_confidence)
+            if expected is not None:
+                return float(np.clip(1.0 - expected,
+                                     CALIBRATED_DISCOUNT_MIN, CALIBRATED_DISCOUNT_MAX))
+        return ILLUSORY_MASTERY_DISCOUNT
 
     def _detect_misconception(self, observation: Observation) -> Optional[MisconceptionHit]:
         """从解释文本关键词检测 misconception（无 LLM 依赖的轻量路径）."""

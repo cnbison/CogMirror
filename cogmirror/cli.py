@@ -13,6 +13,7 @@ import sys
 
 from .belief_engine import BeliefEngine, Observation
 from .belief_state import BeliefState, BloomLevel
+from .calibration import CalibrationCurveComputer, compute_ece
 from .db import Database, DEFAULT_DB_PATH
 from .questions import QuestionBank
 
@@ -319,6 +320,20 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
     return state
 
 
+def _calibration_line(engine: BeliefEngine) -> str:
+    """地图「自评校准度（ECE）」行；无自评数据返回空串（不显示）.
+
+    样本 <5 时诚实标注数据不足（避免拿先验数值下结论，同 C 维度的克制原则）。
+    """
+    curves = engine.calibration_curves
+    if not curves:
+        return ""
+    total_n = sum(c.n for c in curves)
+    if total_n < 5:
+        return f"自评校准度（ECE）：数据不足（{total_n} 次自评，需 ≥5）"
+    return f"自评校准度（ECE）: {compute_ece(curves):.2f}（越接近 0 自评越准）"
+
+
 def print_map(engine: BeliefEngine, state: BeliefState,
               covered_bloom: set[BloomLevel] | None = None,
               prev_state: BeliefState | None = None) -> None:
@@ -351,6 +366,10 @@ def print_map(engine: BeliefEngine, state: BeliefState,
                 print(f"  {dim} {label:<16} 暂无自评数据，暂未测量")
             continue
         print(f"  {dim} {label:<16} {_bar(d.mastery_prob)}")
+
+    calibration = _calibration_line(engine)
+    if calibration:
+        print(f"  {calibration}")
 
     if prev_state is not None:
         delta_lines = _map_delta_lines(engine, state, prev_state)
@@ -579,6 +598,9 @@ def main(argv: list[str] | None = None) -> int:
             for r in db.load_responses(args.user)
         ]
         engine.set_history(args.user, history)
+        # P2 校准曲线：responses 是派生视图（无新表），每次加载重算，
+        # 伪自信折扣由曲线驱动（数据不足时引擎内回退固定值）
+        engine.set_calibration(CalibrationCurveComputer().compute(history))
         print(f"欢迎回来，{args.user}（已完成 {len(history)} 次作答）。")
         overview = _welcome_progress(engine, state)
         if overview:

@@ -788,3 +788,48 @@ def test_fill_still_shows_explanation(monkeypatch, tmp_path):
         args=["--questions", "3"],
     )
     assert "要点: b = a 让 b 与 a 指向同一个列表对象" in out
+
+
+# ── P2 校准曲线：恢复注入 + 地图 ECE 行 ──────────────────────────
+
+def _answer_sequence(q: object, conf: str) -> list[str]:
+    """一道题的作答输入流：自评 + 按题型给一个答案（对错不影响 ECE 行渲染）."""
+    if q.qtype == "choice":
+        return [conf + "\n", "0\n"]
+    if q.qtype == "fill":
+        return [conf + "\n", "nonsense\n"]
+    return [conf + "\n", "def f():\n    pass\nEND\n"]
+
+
+def test_calibration_ece_line_after_restore(monkeypatch, tmp_path):
+    # 首轮 6 道题带自评 -> 次轮 --map-only 恢复后地图出现 ECE 数值行
+    bank = cli.QuestionBank()
+    answers = []
+    for q in bank.all_questions()[:6]:
+        answers += _answer_sequence(q, "80")
+    run_cli(monkeypatch, tmp_path, answers=answers, args=["--questions", "6"])
+    _, out = run_cli(monkeypatch, tmp_path, answers=[], args=["--map-only"])
+    assert "自评校准度（ECE）" in out
+    assert "数据不足" not in out
+
+
+def test_calibration_ece_line_insufficient_samples(monkeypatch, tmp_path):
+    # 首轮仅 2 次自评 -> 次轮诚实标注数据不足，不给先验数值
+    bank = cli.QuestionBank()
+    answers = []
+    for q in bank.all_questions()[:2]:
+        answers += _answer_sequence(q, "80")
+    run_cli(monkeypatch, tmp_path, answers=answers, args=["--questions", "2"])
+    _, out = run_cli(monkeypatch, tmp_path, answers=[], args=["--map-only"])
+    assert "自评校准度（ECE）：数据不足（2 次自评" in out
+
+
+def test_calibration_line_absent_without_self_confidence(monkeypatch, tmp_path):
+    # 全部跳过自评（直接回车）-> 无校准信息，地图不渲染 ECE 行
+    bank = cli.QuestionBank()
+    answers = []
+    for q in bank.all_questions()[:5]:
+        answers += _answer_sequence(q, "")
+    run_cli(monkeypatch, tmp_path, answers=answers, args=["--questions", "5"])
+    _, out = run_cli(monkeypatch, tmp_path, answers=[], args=["--map-only"])
+    assert "自评校准度" not in out
