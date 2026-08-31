@@ -833,3 +833,75 @@ def test_calibration_line_absent_without_self_confidence(monkeypatch, tmp_path):
     run_cli(monkeypatch, tmp_path, answers=answers, args=["--questions", "5"])
     _, out = run_cli(monkeypatch, tmp_path, answers=[], args=["--map-only"])
     assert "自评校准度" not in out
+
+
+# ── P3 间隔衰减：复测分支 + [复习提示] ──────────────────────────
+
+def _seed_gap_db(tmp_path, days_ago: int, n: int = 8) -> str:
+    """造一个"n 道全对、days_ago 天前作答"的 loops 历史 + 初始状态快照."""
+    from datetime import datetime, timedelta
+    from cogmirror.db import Database
+    db_path = str(tmp_path / "cli.db")
+    db = Database(db_path)
+    db.ensure_user("t1")
+    engine = cli.BeliefEngine()
+    db.save_state(engine.create_initial_state("t1"))
+    ts = (datetime.now() - timedelta(days=days_ago)).isoformat()
+    for i in range(n):
+        db.save_response("t1", {
+            "problem_id": f"pl-l3-gap{i}", "skill_id": "python.loops",
+            "score": 1.0, "bloom_level": "APPLY", "self_confidence": None,
+            "user_answer": "", "timestamp": ts,
+        }, illusory_flag=False)
+    db.close()
+    return db_path
+
+
+def test_retest_after_long_gap(monkeypatch, tmp_path):
+    # 42 天未练（峰值 ~0.97）-> 复测建议 + [复习提示] + 可执行命令
+    _seed_gap_db(tmp_path, days_ago=42)
+    _, out = run_cli(monkeypatch, tmp_path, answers=[], args=["--map-only"])
+    assert "[复习提示]" in out
+    assert "42 天未练" in out
+    assert "上次 42 天前练过" in out
+    assert "建议先做 3 道复测题" in out
+    assert "cogmirror --topic python.loops --questions 3" in out
+
+
+def test_no_retest_for_recent_practice(monkeypatch, tmp_path):
+    # DISPROVEN 点（方案 4.7）：连续练习（0 天前）不得误报复习提示
+    _seed_gap_db(tmp_path, days_ago=0)
+    _, out = run_cli(monkeypatch, tmp_path, answers=[], args=["--map-only"])
+    assert "[复习提示]" not in out
+    assert "复测" not in out
+
+
+def test_suggested_practice_retest_branch():
+    engine = cli.BeliefEngine()
+    engine.decay_view = {"python.loops": (0.97, 0.24, 42)}
+    state = engine.create_initial_state("t1")
+    assert cli.suggested_practice(engine, state) == ("python.loops", None)
+    assert "上次 42 天前练过" in cli.next_suggestion(engine, state)
+
+
+def test_retest_needs_both_peak_and_decay():
+    # 峰值不足 0.7（从未掌握）-> 即便衰减多天也不触发复测
+    engine = cli.BeliefEngine()
+    engine.decay_view = {"python.loops": (0.45, 0.05, 42)}
+    state = engine.create_initial_state("t1")
+    assert "复测" not in cli.next_suggestion(engine, state)
+    # 峰值高但未显著衰减（3 天 -> 跌幅 <0.15 且 decayed >= 0.55）-> 不触发
+    engine.decay_view = {"python.loops": (0.97, 0.90, 3)}
+    assert "复测" not in cli.next_suggestion(engine, state)
+
+
+def test_retest_priority_below_liminal():
+    # liminal 优先级高于复测：跨概念跨越中时不给复测建议
+    from cogmirror.belief_state import TCState
+    engine = cli.BeliefEngine()
+    engine.decay_view = {"python.loops": (0.97, 0.24, 42)}
+    state = engine.create_initial_state("t1")
+    state.C.tc_states["python.functions"] = TCState(
+        tc_id="python.functions", status="liminal", progress=0.9)
+    assert "正在跨越中" in cli.next_suggestion(engine, state)
+    assert cli.suggested_practice(engine, state) == ("python.functions", cli.BloomLevel.APPLY)

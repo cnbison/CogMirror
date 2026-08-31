@@ -191,3 +191,69 @@ class TestTCDetector:
                         has_active_misc=False)
         assert tc.status == "liminal"
         assert tc.progress < 1.0
+
+
+class TestPeakAndDecayView:
+    """P3 间隔衰减：历史重放峰值 + 无状态衰减视图（BeliefEngine 层）."""
+
+    @staticmethod
+    def _rows(n_correct: int, n_wrong: int, skill: str = "python.loops",
+              days_ago: int = 0) -> list[dict]:
+        from datetime import datetime, timedelta
+        ts = (datetime.now() - timedelta(days=days_ago)).isoformat()
+        return [{"skill_id": skill, "correct": 1, "created_at": ts}] * n_correct + \
+               [{"skill_id": skill, "correct": 0, "created_at": ts}] * n_wrong
+
+    def test_peak_replay_is_readonly_and_differs_from_fresh_l1(self):
+        # 缺口 1：BKT 不持久化，历史峰值靠重放推导；重放不得创建 l1 模型
+        from cogmirror.belief_engine import BeliefEngine
+        engine = BeliefEngine()
+        peaks = engine.peak_mastery_from_history(self._rows(6, 2, days_ago=42))
+        # 6 连对后 P(L) 峰值明显高（~0.97），随后的错把"当前"拉低但峰值保留
+        assert peaks["python.loops"] >= 0.7
+        # 只读：l1 不被污染，当前掌握仍是先验
+        assert "python.loops" not in engine.l1.all_skills()
+        assert engine.get_bkt_mastery("python.loops") == pytest.approx(0.1)
+
+    def test_peak_ignores_rows_without_skill(self):
+        from cogmirror.belief_engine import BeliefEngine
+        engine = BeliefEngine()
+        rows = self._rows(3, 0) + [{"correct": 1, "created_at": "2026-01-01T00:00:00"}]
+        assert set(engine.peak_mastery_from_history(rows)) == {"python.loops"}
+
+    def test_decayed_math_30days_is_e_minus_1(self):
+        from cogmirror.belief_engine import BeliefEngine
+        from datetime import datetime
+        engine = BeliefEngine()
+        rows = self._rows(6, 0, days_ago=30)
+        view = engine.decayed_mastery_view(rows, now=datetime.now())
+        peak, decayed, days = view["python.loops"]
+        assert days == 30
+        assert decayed == pytest.approx(peak * np.exp(-1.0))
+
+    def test_decayed_view_idempotent(self):
+        # 缺口 2：连续调用两次结果相同（无状态，不经 l1 原地乘法）
+        from cogmirror.belief_engine import BeliefEngine
+        engine = BeliefEngine()
+        rows = self._rows(6, 1, days_ago=42)
+        assert engine.decayed_mastery_view(rows) == engine.decayed_mastery_view(rows)
+
+    def test_recent_practice_no_decay(self):
+        # 连续练习（days=0）不衰减：DISPROVEN 点的引擎侧（无间隔不误报）
+        from cogmirror.belief_engine import BeliefEngine
+        engine = BeliefEngine()
+        peak, decayed, days = engine.decayed_mastery_view(self._rows(6, 0))[ "python.loops"]
+        assert days == 0
+        assert decayed == peak
+
+    def test_days_from_last_response_only(self):
+        # 间隔按该 skill 最近一条算：近期练过则旧记录不参与衰减
+        from cogmirror.belief_engine import BeliefEngine
+        from datetime import datetime, timedelta
+        engine = BeliefEngine()
+        old = [{"skill_id": "python.loops", "correct": 1,
+                "created_at": (datetime.now() - timedelta(days=90)).isoformat()}] * 6
+        recent = [{"skill_id": "python.loops", "correct": 1, "created_at": datetime.now().isoformat()}]
+        peak, decayed, days = engine.decayed_mastery_view(old + recent)["python.loops"]
+        assert days == 0
+        assert decayed == peak

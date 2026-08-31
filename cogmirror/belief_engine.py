@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -29,7 +29,7 @@ from .belief_state import (
     IllusoryConfidenceHit,
     MisconceptionHit,
 )
-from .bkt import BKTEvolutionLayer, EvolutionConfig
+from .bkt import BKTModel, BKTEvolutionLayer, EvolutionConfig
 from .calibration import CalibrationCurve, CalibrationCurveComputer
 from .content.misconceptions import PythonBasicsMisconceptionLibrary
 from .mirt import BiFactorMIRT5D, MIRTConfig
@@ -139,6 +139,10 @@ class BeliefEngine:
         # 校准曲线（P2）：None = 无校准数据，伪自信折扣走固定回退值。
         # 由 CLI 从 responses 历史重算后注入（单用户派生视图，不落库）
         self.calibration_curves: Optional[List[CalibrationCurve]] = None
+        # 间隔衰减视图（P3）：{skill: (peak, decayed, days)}，None = 未计算。
+        # 由 CLI 从 responses 历史重算后注入（只读派生，不落库）；
+        # next_suggestion / 复测提示消费它
+        self.decay_view: Optional[Dict[str, Tuple[float, float, int]]] = None
 
     # ── 状态创建 ────────────────────────────────────────────────────
 
@@ -279,6 +283,66 @@ class BeliefEngine:
     def set_calibration(self, curves: List[CalibrationCurve] | None) -> None:
         """注入自评校准曲线（CLI 从 responses 历史重算后调用）."""
         self.calibration_curves = curves
+
+    # ── 间隔衰减（P3）：历史重放峰值 + 无状态衰减视图 ────────────────
+
+    def peak_mastery_from_history(self, history: List[Dict[str, Any]]) -> Dict[str, float]:
+        """从 responses 历史重放推导每个 skill 的历史峰值掌握概率（只读，不改 l1）.
+
+        BKT 状态不持久化（恢复路径只喂 MIRT），"曾掌握"在重启后无从从 l1 读出
+        --对每个 skill 取其作答序列，用独立的临时 BKTModel 逐条 update
+        （学习更新，非时间衰减），记录过程中 P(L) 最大值；可从 DB 幂等重算。
+        rows 需含 skill_id + correct；缺 skill_id 的行跳过。
+        """
+        models: Dict[str, BKTModel] = {}
+        peaks: Dict[str, float] = {}
+        for r in history:
+            skill = r.get("skill_id")
+            if not skill:
+                continue
+            if skill not in models:
+                models[skill] = BKTModel(skill, self.l1.config.get_params(skill))
+            p = models[skill].update(bool(r.get("correct")))
+            if p > peaks.get(skill, 0.0):
+                peaks[skill] = p
+        return peaks
+
+    def decayed_mastery_view(self, history: List[Dict[str, Any]],
+                             now: datetime | None = None) -> Dict[str, Tuple[float, float, int]]:
+        """无状态衰减视图：{skill: (peak, decayed, days_since_last)}，不改 l1 状态.
+
+        decayed = peak · e^(-days/τ)，直接按公式算、不经 l1.apply_decay 的
+        原地乘法--后者若每次会话按"距上次作答天数"调用会在已衰减值上再乘
+        全量因子（复合衰减）。days 取该 skill 最近一条 created_at 距今天数；
+        本地单用户 CLI，用本地时区 now（测试可注入固定值）。rows 需含
+        skill_id / correct / created_at（峰值来自 peak_mastery_from_history）。
+        返回值在方案 2-tuple 上扩展了 days（复测文案要显示天数）。
+        """
+        peaks = self.peak_mastery_from_history(history)
+        last: Dict[str, datetime] = {}
+        for r in history:
+            skill = r.get("skill_id")
+            ts = r.get("created_at")
+            if not skill or not ts:
+                continue
+            try:
+                t = datetime.fromisoformat(str(ts))
+            except ValueError:
+                continue
+            if skill not in last or t > last[skill]:
+                last[skill] = t
+        now = now or datetime.now()
+        view: Dict[str, Tuple[float, float, int]] = {}
+        for skill, peak in peaks.items():
+            t = last.get(skill)
+            days = max((now - t).days, 0) if t is not None else 0
+            if days > 0:
+                tau = self.l1.config.get_decay_constant(skill)
+                decayed = peak * float(np.exp(-days / tau))
+            else:
+                decayed = peak
+            view[skill] = (peak, decayed, days)
+        return view
 
     def get_theta(self, state: BeliefState) -> np.ndarray:
         """获取当前 5D θ."""

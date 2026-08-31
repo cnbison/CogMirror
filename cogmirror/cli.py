@@ -415,6 +415,13 @@ def print_map(engine: BeliefEngine, state: BeliefState,
     if not liminal and not crossed:
         print("\n[临界概念] 当前无正在跨越中的概念")
 
+    retest = _retest_candidates(engine)
+    if retest:
+        print("\n[复习提示] 曾掌握、正在遗忘（隔太久不练会掉）：")
+        for skill, peak, decayed, days in retest:
+            print(f"  「{_topic_label(skill)}」{days} 天未练，"
+                  f"掌握概率从 {peak:.0%} 掉到 {decayed:.0%}")
+
     print("\n[一句话建议]")
     print("  " + next_suggestion(engine, state))
     cmd = practice_command(engine, state)
@@ -481,6 +488,31 @@ def map_interpretation(engine: BeliefEngine, state: BeliefState) -> str:
     return " ".join(clauses)
 
 
+# 复测分支阈值（方案 P3 4.4，保守双条件）：曾掌握（峰值≥0.7）且
+# 显著衰减（衰减后 <0.55 或 跌幅 ≥0.15）
+RETEST_PEAK_MIN = 0.7
+RETEST_DECAYED_MAX = 0.55
+RETEST_DROP_MIN = 0.15
+
+
+def _retest_candidates(engine: BeliefEngine) -> list[tuple[str, float, float, int]]:
+    """命中复测条件的 skill 列表 [(skill, peak, decayed, days)].
+
+    按衰减后掌握概率升序（最遗忘的排最前）；无视图/无候选返回空列表。
+    连续练习（days=0 -> decayed==peak）天然不命中。
+    """
+    view = engine.decay_view
+    if not view:
+        return []
+    out = []
+    for skill, (peak, decayed, days) in view.items():
+        if peak < RETEST_PEAK_MIN:
+            continue
+        if decayed < RETEST_DECAYED_MAX or (peak - decayed) >= RETEST_DROP_MIN:
+            out.append((skill, peak, decayed, days))
+    return sorted(out, key=lambda c: c[2])
+
+
 def next_suggestion(engine: BeliefEngine, state: BeliefState) -> str:
     # 优先：正在 liminal 的概念 -> 巩固应用题（合意困难：不引入新概念）
     liminal = [tid for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
@@ -489,7 +521,11 @@ def next_suggestion(engine: BeliefEngine, state: BeliefState) -> str:
         remaining = _tc_remaining_text(engine, state.C.tc_states[tid])
         return (f"「{_topic_label(tid)}」正在跨越中——{remaining}。"
                 f"建议接下来做 3 道「{_topic_label(tid)}」的应用题（L3），不建议现在学新概念。")
-    # 其次：练过的 topic 里 BKT 最弱的
+    # 其次：曾掌握但正在遗忘的 topic -> 复测（间隔效应，何时做）
+    for skill, peak, decayed, days in _retest_candidates(engine):
+        return (f"「{_topic_label(skill)}」上次 {days} 天前练过，掌握概率从 {peak:.0%} "
+                f"掉到 {decayed:.0%}--建议先做 3 道复测题，趁遗忘加深前巩固。")
+    # 再次：练过的 topic 里 BKT 最弱的
     practiced = engine.l1.all_skills()
     if practiced:
         weakest = min(practiced, key=lambda s: engine.get_bkt_mastery(s))
@@ -503,12 +539,15 @@ def next_suggestion(engine: BeliefEngine, state: BeliefState) -> str:
 def suggested_practice(engine: BeliefEngine, state: BeliefState) -> tuple[str, BloomLevel | None] | None:
     """返回建议练习目标 (topic, level)；无可执行建议时返回 None.
 
-    level 为 None 表示不限层级（基础题巩固）。与 next_suggestion 决策一致：
-    优先正在 liminal 的概念（巩固应用题 L3），否则练过且 BKT 最弱的 topic。
+    level 为 None 表示不限层级（基础题巩固/复测）。与 next_suggestion 决策一致：
+    优先正在 liminal 的概念（巩固应用题 L3），其次曾掌握且显著衰减的 topic
+    （复测），否则练过且 BKT 最弱的 topic。
     """
     liminal = [tid for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
     if liminal:
         return (liminal[0], BloomLevel.APPLY)
+    for skill, peak, decayed, days in _retest_candidates(engine):
+        return (skill, None)
     practiced = engine.l1.all_skills()
     if practiced:
         weakest = min(practiced, key=lambda s: engine.get_bkt_mastery(s))
@@ -525,6 +564,15 @@ def practice_command(engine: BeliefEngine, state: BeliefState) -> str:
     topic, level = target
     level_part = f" --level L{level.value}" if level is not None else ""
     return f"cogmirror --topic {topic}{level_part} --questions 3"
+
+
+def _refresh_decay_view(engine: BeliefEngine, db: Database, user_id: str) -> None:
+    """重算间隔衰减视图（会话开始/每轮答题后调用，纯只读，l1 语义不变）.
+
+    答题后刷新避免陈旧提示：刚练过的 topic days 归零、不再命中复测条件。
+    """
+    rows = db.load_responses(user_id)
+    engine.decay_view = engine.decayed_mastery_view(rows) if rows else None
 
 
 def _run_data_command(args) -> int:
@@ -601,6 +649,9 @@ def main(argv: list[str] | None = None) -> int:
         # P2 校准曲线：responses 是派生视图（无新表），每次加载重算，
         # 伪自信折扣由曲线驱动（数据不足时引擎内回退固定值）
         engine.set_calibration(CalibrationCurveComputer().compute(history))
+        # P3 间隔衰减视图：从 responses 历史重放峰值 + 无状态衰减（只读派生），
+        # 复测建议与 [复习提示] 消费它
+        _refresh_decay_view(engine, db, args.user)
         print(f"欢迎回来，{args.user}（已完成 {len(history)} 次作答）。")
         overview = _welcome_progress(engine, state)
         if overview:
@@ -622,6 +673,7 @@ def main(argv: list[str] | None = None) -> int:
                             len(review_ids) if review_ids else args.questions,
                             topic=args.topic, level=args.level,
                             problem_ids=review_ids)
+        _refresh_decay_view(engine, db, args.user)
 
     covered_bloom = {q.bloom_level for q in bank.all_questions()}
     print_map(engine, state, covered_bloom, prev_state=prev_state)
@@ -633,7 +685,13 @@ def main(argv: list[str] | None = None) -> int:
         if target is None:
             break
         topic, level = target
-        level_txt = "的 L3 题" if level is not None else "的基础题"
+        retest_topics = {c[0] for c in _retest_candidates(engine)}
+        if level is not None:
+            level_txt = "的 L3 题"
+        elif topic in retest_topics:
+            level_txt = "的复测题"
+        else:
+            level_txt = "的基础题"
         tc = state.C.tc_states.get(topic)
         extra = f"（{_tc_remaining_text(engine, tc)}）" if tc and tc.status == "liminal" else ""
         try:
@@ -644,6 +702,7 @@ def main(argv: list[str] | None = None) -> int:
             break
         prev_round = copy.deepcopy(state)
         state = run_session(engine, bank, state, db, 3, topic=topic, level=level)
+        _refresh_decay_view(engine, db, args.user)
         print_map(engine, state, covered_bloom, prev_state=prev_round)
 
     db.close()
