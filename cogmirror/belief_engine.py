@@ -33,6 +33,7 @@ from .bkt import BKTModel, BKTEvolutionLayer, EvolutionConfig
 from .calibration import CalibrationCurve, CalibrationCurveComputer
 from .content.misconceptions import PythonBasicsMisconceptionLibrary
 from .mirt import BiFactorMIRT5D, MIRTConfig
+from .misconception_tracker import MisconceptionTracker
 from .tc import TCStateDetector
 
 # 伪自信判定阈值：自评置信度 - 实际得分 >= 该值且自评较高时记为伪自信
@@ -128,12 +129,16 @@ class BeliefEngine:
         self,
         config: BeliefEngineConfig | None = None,
         misconception_library: PythonBasicsMisconceptionLibrary | None = None,
+        misconception_tracker: MisconceptionTracker | None = None,
     ) -> None:
         self.config = config or BeliefEngineConfig()
         self.l1 = BKTEvolutionLayer(self.config.evolution_config)
         self.l2 = BiFactorMIRT5D(self.config.mirt_config)
         self.tc_detector = TCStateDetector()
         self.misconception_library = misconception_library or PythonBasicsMisconceptionLibrary()
+        # P4：misconception 证据追踪（None = 无证据数据，命中置信度回退固定 0.6，
+        # 与迁移前行为一致）。由 CLI 从 DB 加载后注入
+        self.misconception_tracker = misconception_tracker
         # user_id -> 响应历史（MIRT 输入 + 详情回看）
         self._response_history: Dict[str, List[Dict[str, Any]]] = {}
         # 校准曲线（P2）：None = 无校准数据，伪自信折扣走固定回退值。
@@ -380,9 +385,14 @@ class BeliefEngine:
         entry = self.misconception_library.detect_by_keywords(text)
         if entry is None:
             return None
+        # P4：置信度证据驱动（反复持续的误解 > 0.6，被克服的回落）；
+        # 无 tracker（未注入，如测试/黄金回归）回退固定 0.6
+        confidence = 0.6
+        if self.misconception_tracker is not None:
+            confidence = self.misconception_tracker.confidence(entry.misc_id)
         return MisconceptionHit(
             misc_id=entry.misc_id,
-            confidence=0.6,  # 关键词路径固定置信度
+            confidence=confidence,
             trigger_problem_id=observation.problem_id,
             evidence_text=text,
             timestamp=observation.timestamp,

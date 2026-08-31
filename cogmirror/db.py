@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS belief_snapshots (
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_user ON belief_snapshots(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS misconception_evidence (
+    misc_id TEXT PRIMARY KEY,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_updated TEXT NOT NULL
+);
 """
 
 DEFAULT_DB_PATH = Path("data/cogmirror.db")
@@ -65,6 +72,12 @@ class Database:
         self._conn = sqlite3.connect(self.db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        # P4：responses 加 misc_id 列（命中记录落库，对账原料）。既有库的表
+        # 已存在，CREATE TABLE IF NOT EXISTS 不会加列 -> 启动检查 + ALTER（单
+        # 用户本地库可行，方案 5.4 B 路）
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(responses)")}
+        if "misc_id" not in cols:
+            self._conn.execute("ALTER TABLE responses ADD COLUMN misc_id TEXT")
         self._conn.commit()
 
     def close(self) -> None:
@@ -98,6 +111,8 @@ class Database:
         now = datetime.now().isoformat()
         self._conn.execute("DELETE FROM responses WHERE user_id = ?", (user_id,))
         self._conn.execute("DELETE FROM belief_snapshots WHERE user_id = ?", (user_id,))
+        # 证据表无 user_id 列（单用户本地库），"删除全部数据"时一并清空
+        self._conn.execute("DELETE FROM misconception_evidence")
         self._conn.execute(
             "UPDATE users SET data_delete_requested_at = ? WHERE user_id = ?",
             (now, user_id),
@@ -106,11 +121,12 @@ class Database:
 
     # ── responses ───────────────────────────────────────────────────
 
-    def save_response(self, user_id: str, obs_dict: dict, illusory_flag: bool) -> None:
+    def save_response(self, user_id: str, obs_dict: dict, illusory_flag: bool,
+                      misc_id: str | None = None) -> None:
         self._conn.execute(
             "INSERT INTO responses (user_id, problem_id, skill_id, score, correct, "
-            "bloom_level, self_confidence, illusory_flag, user_answer, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "bloom_level, self_confidence, illusory_flag, user_answer, misc_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 user_id,
                 obs_dict["problem_id"],
@@ -121,6 +137,7 @@ class Database:
                 obs_dict.get("self_confidence"),
                 int(illusory_flag),
                 obs_dict.get("user_answer", ""),
+                misc_id,
                 obs_dict["timestamp"],
             ),
         )
@@ -130,6 +147,27 @@ class Database:
         """加载作答历史（BeliefEngine.set_history 的 DB restore 格式）."""
         rows = self._conn.execute(
             "SELECT * FROM responses WHERE user_id = ? ORDER BY response_id", (user_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── misconception evidence（P4）──────────────────────────────────
+
+    def save_misconception_evidence(self, rows: list[dict]) -> None:
+        """写入证据行（tracker.dump() 格式），按 misc_id 幂等覆盖."""
+        for r in rows:
+            self._conn.execute(
+                "INSERT INTO misconception_evidence (misc_id, success_count, "
+                "failure_count, last_updated) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(misc_id) DO UPDATE SET success_count = ?, "
+                "failure_count = ?, last_updated = ?",
+                (r["misc_id"], r["success_count"], r["failure_count"], r["last_updated"],
+                 r["success_count"], r["failure_count"], r["last_updated"]),
+            )
+        self._conn.commit()
+
+    def load_misconception_evidence(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM misconception_evidence ORDER BY misc_id"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -160,4 +198,5 @@ class Database:
         return {
             "user": self.get_user(user_id),
             "responses": self.load_responses(user_id),
+            "misconception_evidence": self.load_misconception_evidence(),
         }

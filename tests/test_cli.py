@@ -207,9 +207,10 @@ def test_illusory_live_feedback_hit_and_silent():
 
 def test_illusory_live_feedback_end_to_end(monkeypatch, tmp_path):
     # 自评 100 + 答错 2 题 -> 每题当题点出，地图汇总仍在
+    # （每题答错后的追问用 "\n" 跳过）
     _, out = run_cli(
         monkeypatch, tmp_path,
-        answers=["100\n", "0\n", "100\n", "0\n"],
+        answers=["100\n", "0\n", "\n", "100\n", "0\n", "\n"],
         args=["--questions", "2"],
     )
     assert out.count("伪自信提示") == 2
@@ -303,13 +304,13 @@ def test_all_illusory_hits_listed_and_count_matches(monkeypatch, tmp_path):
     # 回归（自测弱学习者）：C 维度说"发现 N 处失准"但列表只显示 5 处（[-5:] 截断）。
     # 6 题全部自评 100 + 答错 -> 6 处命中应全部列出，首尾都在。
     answers = []
-    # 每题先自评 100，再给错误答案
-    answers += ["100\n", "0\n"]   # pv-l1-01 choice 错
-    answers += ["100\n", "0\n"]   # pv-l2-01 choice 错
-    answers += ["100\n", "wrong\n"]  # pv-l2-02 fill 错
-    answers += ["100\n", "END\n"]    # pv-l3-01 code 空
-    answers += ["100\n", "0\n"]   # pv-l4-01 choice 错
-    answers += ["100\n", "wrong\n"]  # pl-l1-01 fill 错
+    # 每题先自评 100，再给错误答案，答错追问（P4）用回车跳过
+    answers += ["100\n", "0\n", "\n"]      # pv-l1-01 choice 错
+    answers += ["100\n", "0\n", "\n"]      # pv-l2-01 choice 错
+    answers += ["100\n", "wrong\n", "\n"]  # pv-l2-02 fill 错
+    answers += ["100\n", "END\n", "\n"]    # pv-l3-01 code 空
+    answers += ["100\n", "0\n", "\n"]      # pv-l4-01 choice 错
+    answers += ["100\n", "wrong\n", "\n"]  # pl-l1-01 fill 错
     _, out = run_cli(
         monkeypatch, tmp_path,
         answers=answers,
@@ -326,11 +327,11 @@ def test_topic_label_chinese_in_suggestion(monkeypatch, tmp_path):
     # 前 5 题全属 python.variables 且全错 -> BKT 最弱是 variables -> 建议该 topic
     # （Q4 是代码题，需要 END 结束符）
     answers = [
-        "80\n", "0\n",     # pv-l1-01 choice 错
-        "80\n", "0\n",     # pv-l2-01 choice 错
-        "80\n", "wrong\n",  # pv-l2-02 fill 错
-        "80\n", "END\n",    # pv-l3-01 code 空
-        "80\n", "0\n",     # pv-l4-01 choice 错
+        "80\n", "0\n", "\n",   # pv-l1-01 choice 错（追问跳过）
+        "80\n", "0\n", "\n",   # pv-l2-01 choice 错
+        "80\n", "wrong\n", "\n",  # pv-l2-02 fill 错
+        "80\n", "END\n", "\n",   # pv-l3-01 code 空
+        "80\n", "0\n", "\n",   # pv-l4-01 choice 错
     ]
     _, out = run_cli(
         monkeypatch, tmp_path,
@@ -793,12 +794,16 @@ def test_fill_still_shows_explanation(monkeypatch, tmp_path):
 # ── P2 校准曲线：恢复注入 + 地图 ECE 行 ──────────────────────────
 
 def _answer_sequence(q: object, conf: str) -> list[str]:
-    """一道题的作答输入流：自评 + 按题型给一个答案（对错不影响 ECE 行渲染）."""
+    """一道题的作答输入流：自评 + 按题型给一个答案 + 答错后的追问跳过行.
+
+    给的答案都是错的 -> P4 答错追问必然触发，末尾 "\n" = 直接回车跳过
+    （对错不影响 ECE 行渲染）。
+    """
     if q.qtype == "choice":
-        return [conf + "\n", "0\n"]
+        return [conf + "\n", "0\n", "\n"]
     if q.qtype == "fill":
-        return [conf + "\n", "nonsense\n"]
-    return [conf + "\n", "def f():\n    pass\nEND\n"]
+        return [conf + "\n", "nonsense\n", "\n"]
+    return [conf + "\n", "def f():\n    pass\nEND\n", "\n"]
 
 
 def test_calibration_ece_line_after_restore(monkeypatch, tmp_path):
@@ -905,3 +910,102 @@ def test_retest_priority_below_liminal():
         tc_id="python.functions", status="liminal", progress=0.9)
     assert "正在跨越中" in cli.next_suggestion(engine, state)
     assert cli.suggested_practice(engine, state) == ("python.functions", cli.BloomLevel.APPLY)
+
+
+# ── P4 第 0 步：答错追问采集 + misc_id 落库 ──────────────────────
+
+# pv-l1-01（choice，正确选项 1）答错后的解释文本，含 M8 关键词"改不了"
+_M8_EXPLANATION = "为什么函数里改不了外面的x？"
+
+
+def test_wrong_answer_prompts_explanation(monkeypatch, tmp_path):
+    # 答错后出现可选追问；直接回车跳过 -> 无命中、misc_id 不落库
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "0\n", "\n"],
+        args=["--questions", "1"],
+    )
+    assert "为什么这么答" in out
+    assert "直接回车跳过" in out
+    assert "[误解点] 本次无" in out
+    from cogmirror.db import Database
+    db = Database(str(tmp_path / "cli.db"))
+    try:
+        rows = db.load_responses("t1")
+        assert len(rows) == 1
+        assert rows[0]["misc_id"] is None
+    finally:
+        db.close()
+
+
+def test_correct_answer_no_followup(monkeypatch, tmp_path):
+    # 答对不追问（跳过是常态，解释是例外）
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "1\n"],
+        args=["--questions", "1"],
+    )
+    assert "用一句话说说你的理由" not in out
+
+
+def test_explanation_triggers_misc_detection(monkeypatch, tmp_path):
+    # 第 0 步验收：真机路径的解释文本 -> 命中检测 -> 地图出现误解点 + misc_id 落库
+    # （P4 前该链路因 explanation_text 恒为空串从未在产品路径触发过）
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "0\n", _M8_EXPLANATION + "\n"],
+        args=["--questions", "1"],
+    )
+    assert "[误解点]" in out
+    assert "全局/局部作用域混淆" in out
+    assert "置信度 50%" in out  # 无证据先验
+    assert _M8_EXPLANATION in out
+    from cogmirror.db import Database
+    db = Database(str(tmp_path / "cli.db"))
+    try:
+        rows = db.load_responses("t1")
+        assert rows[0]["misc_id"] == "M8"
+    finally:
+        db.close()
+
+
+def test_followup_eof_mid_session_graceful(monkeypatch, tmp_path):
+    # 追问处输入流结束 -> 视为跳过、不吐 traceback，下一题照常进入
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "0\n"],   # q1 答错后追问处 EOF
+        args=["--questions", "2"],
+    )
+    assert "Traceback" not in out
+    assert "[误解点] 本次无" in out
+
+
+# ── P4 证据闭环：对账 -> 置信度变化跨会话生效 ──────────────────────
+
+
+def test_misc_evidence_closed_loop(monkeypatch, tmp_path):
+    # 会话 1：q1（pv-l1-01，variables）答错 + M8 解释 -> 命中落库；
+    # q2（pv-l2-01，同 skill）答对且未重触发 -> 收尾对账判"检测被证伪"，
+    # M8 failure_count=1 落库。会话 2 再触发 M8 -> 命中置信度回落到 1/3。
+    from cogmirror.db import Database
+    answers = ["80\n", "0\n", _M8_EXPLANATION + "\n", "90\n", "2\n"]
+    run_cli(monkeypatch, tmp_path, answers=answers, args=["--questions", "2"])
+
+    db = Database(str(tmp_path / "cli.db"))
+    try:
+        rows = db.load_responses("t1")
+        assert [r["misc_id"] for r in rows] == ["M8", None]
+        evidence = db.load_misconception_evidence()
+        assert evidence and evidence[0]["misc_id"] == "M8"
+        assert evidence[0]["failure_count"] == 1
+        assert evidence[0]["success_count"] == 0
+    finally:
+        db.close()
+
+    _, out = run_cli(
+        monkeypatch, tmp_path,
+        answers=["80\n", "0\n", _M8_EXPLANATION + "\n"],
+        args=["--questions", "1"],
+    )
+    assert "[误解点]" in out
+    assert "置信度 33%" in out  # (0+1)/(0+1+2)：被克服后权重回落

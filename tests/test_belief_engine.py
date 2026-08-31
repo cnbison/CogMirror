@@ -295,6 +295,31 @@ class TestBeliefEngineUpdate:
         assert state.C.misconception_hits[0].misc_id == "M1"
         assert state.C.discount_factor < 1.0
 
+    def test_misconception_confidence_evidence_driven(self):
+        # P4：命中置信度来自 tracker 的 Laplace 证据（无 tracker = 固定 0.6）
+        from cogmirror.misconception_tracker import MisconceptionTracker
+        text = "我不明白，x = x + 1 这个等式两边不相等，这不是无解吗？矛盾啊"
+
+        confirmed = MisconceptionTracker()
+        for _ in range(3):
+            confirmed.record_success("M1")  # 检测被证实 3 次 -> conf 0.8
+        refuted = MisconceptionTracker()
+        for _ in range(3):
+            refuted.record_failure("M1")  # 检测被证伪 3 次 -> conf 0.2
+
+        obs = Observation(
+            skill_id="python.variables", problem_id="q1", score=1.0,
+            explanation_text=text)
+        state_hi = BeliefEngine(misconception_tracker=confirmed).update(
+            BeliefEngine(misconception_tracker=confirmed).create_initial_state("u1"), obs)
+        state_lo = BeliefEngine(misconception_tracker=refuted).update(
+            BeliefEngine(misconception_tracker=refuted).create_initial_state("u2"), obs)
+
+        assert state_hi.C.misconception_hits[0].confidence == pytest.approx(0.8)
+        assert state_lo.C.misconception_hits[0].confidence == pytest.approx(0.2)
+        # 证实（0.8 > 0.6）折扣更深；证伪（0.25 < 0.6）折扣更浅（方案 5.6）
+        assert state_hi.C.discount_factor < state_lo.C.discount_factor
+
     def test_overall_confidence_grows_with_data(self):
         engine = BeliefEngine()
         state = engine.create_initial_state("u1")

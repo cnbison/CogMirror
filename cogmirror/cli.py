@@ -15,6 +15,7 @@ from .belief_engine import BeliefEngine, Observation
 from .belief_state import BeliefState, BloomLevel
 from .calibration import CalibrationCurveComputer, compute_ece
 from .db import Database, DEFAULT_DB_PATH
+from .misconception_tracker import MisconceptionTracker
 from .questions import QuestionBank
 
 DIM_LABELS = {
@@ -215,6 +216,18 @@ def ask_self_confidence() -> float | None:
         print("请输入 0-100 的整数")
 
 
+def ask_explanation() -> str:
+    """答错后的可选追问：一句话解释「为什么这么答」，回车跳过（跳过是常态）.
+
+    输入流结束（EOF）也视为跳过：追问在判分之后、下一题之前，若在这里因
+    EOF 抛出会提前中断整组答题（自测发现交互流测试即此场景）。
+    """
+    try:
+        return input("为什么这么答？用一句话说说你的理由（直接回车跳过）\n").strip()
+    except EOFError:
+        return ""
+
+
 def read_answer(question) -> str:
     if question.qtype == "choice":
         for i, opt in enumerate(question.options):
@@ -279,6 +292,10 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
             break
         score, details = bank.grade_answer(q, answer)
         print(f"得分: {score:.2f}" + ("（部分正确）" if 0.0 < score < 1.0 else ""))
+        # P4 第 0 步 A 路：答错后可选追问解释（判分后、讲解前--先让学习者
+        # 说出自己的思路，再看正确答案）。解释文本进 Observation，是
+        # misconception 关键词检测在产品路径唯一的输入来源
+        explanation = ask_explanation() if score < 0.6 else ""
         if details:
             for d in details[:3]:
                 if "error" in d:
@@ -302,12 +319,19 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
         obs = Observation(
             skill_id=q.skill_id, problem_id=q.problem_id, score=score,
             bloom_level=q.bloom_level, self_confidence=self_conf,
-            user_answer=answer, explanation_text="",
+            user_answer=answer, explanation_text=explanation,
         )
         state = engine.update(state, obs)
+        # P4 第 0 步 B 路：命中记录落库（对账原料）。引擎每次 update 最多
+        # 追加一条 misconception 命中，用触发题号判断本题是否命中
+        misc_id = None
+        if (state.C.misconception_hits
+                and state.C.misconception_hits[-1].trigger_problem_id == q.problem_id):
+            misc_id = state.C.misconception_hits[-1].misc_id
         db.save_response(state.user_id, obs.to_dict(),
                          illusory_flag=bool(state.C.illusory_confidence_hits
-                                            and state.C.illusory_confidence_hits[-1].problem_id == q.problem_id))
+                                            and state.C.illusory_confidence_hits[-1].problem_id == q.problem_id),
+                         misc_id=misc_id)
         live = _liminal_live_feedback(engine, state, q.skill_id, score,
                                       q.bloom_level, prev_tc_status)
         if live:
@@ -400,6 +424,19 @@ def print_map(engine: BeliefEngine, state: BeliefState,
         print("  这些地方『感觉会』可能掩盖了『其实还没会』，建议重做并讲出理由。")
     else:
         print("\n[伪自信点] 本次无（自评与表现基本校准，或未采集自评）")
+
+    if state.C.misconception_hits:
+        print("\n[误解点] 解释文本中检测到的典型误解：")
+        # 全量列出（关键词命中需解释文本，正常路径里不会多到刷屏）
+        for h in state.C.misconception_hits:
+            entry = engine.misconception_library.get(h.misc_id)
+            name = entry.name if entry else h.misc_id
+            print(f"  题 {h.trigger_problem_id}: {name}（置信度 {h.confidence:.0%}）"
+                  f"「{h.evidence_text}」")
+        print("  这些解释透露的概念误解值得留意，重做相关题时换个思路。")
+    else:
+        print("\n[误解点] 本次无（答错后可选的「为什么这么答」追问是检测输入，"
+              "跳过则无数据）")
 
     liminal = [(tid, tc) for tid, tc in state.C.tc_states.items() if tc.status == "liminal"]
     crossed = [tid for tid, tc in state.C.tc_states.items() if tc.status == "post_liminal"]
@@ -628,10 +665,16 @@ def main(argv: list[str] | None = None) -> int:
         return _run_data_command(args)
 
     bank = QuestionBank()
-    engine = BeliefEngine()
-    engine.l2.register_items_bulk(bank.mirt_items())
     db = Database(args.db)
     db.ensure_user(args.user)
+    # P4：misconception 证据闭环--从 DB 恢复证据计数，注入引擎（命中置信度
+    # 数据驱动）；会话结束对账后写回
+    tracker = MisconceptionTracker()
+    tracker.load(db.load_misconception_evidence())
+    engine = BeliefEngine(misconception_tracker=tracker)
+    engine.l2.register_items_bulk(bank.mirt_items())
+    # 对账只看本次会话新增的响应（窗口限同一会话，方案 5.7）
+    n_rows_before = len(db.load_responses(args.user))
 
     state = db.load_latest_state(args.user)
     if state is None:
@@ -704,6 +747,12 @@ def main(argv: list[str] | None = None) -> int:
         state = run_session(engine, bank, state, db, 3, topic=topic, level=level)
         _refresh_decay_view(engine, db, args.user)
         print_map(engine, state, covered_bloom, prev_state=prev_round)
+
+    # P4 收尾：把本次会话的 misconception 命中与同 skill 后续表现对账，
+    # 证据计数落库（下次会话恢复，命中置信度随之变化）
+    rows = db.load_responses(args.user)
+    tracker.reconcile(rows[n_rows_before:])
+    db.save_misconception_evidence(tracker.dump())
 
     db.close()
     return 0
