@@ -46,6 +46,7 @@ cogmirror                   # 交互式答题 + 认知地图（或 python -m cog
 5. **[SOMEDAY.md](./SOMEDAY.md)** —— 暂缓事项清单（跨领域认知诊断、双Agent重新引入、插件化等），每项都写明了触发条件，不满足条件前不重新讨论。
 6. **[REFERENCES-dialogue-assessment.md](./REFERENCES-dialogue-assessment.md)** —— Conversation-Based Assessment / 对话知识追踪相关文献整理，支撑Phase 0.5的技术方案设计。
 7. **[docs/implementation-plan.md](./docs/implementation-plan.md)** —— PersonalAGI 功能迁移详细实施方案（P1-P5 执行蓝图，含 A1-A4/B1-B2 六个特性的文件级设计、测试计划、验收标准与决策关卡）。执行时按 Phase 推进，每个 Phase 过关卡后再进入下一个。
+8. **[docs/CogMirror-项目完整流程文档.md](./docs/CogMirror-项目完整流程文档.md)** -- 全项目技术与业务链路的通读总结（理论依据 / 题库与判分 / 八步引擎 / 地图机制 / 数据合规 / ECOS 迁移决策），目标是不看代码也能理解「做了什么、为什么这么做、每一步怎么算出来的」。
 
 ## 一句话共识（避免开工后又飘回ECOS的老路）
 
