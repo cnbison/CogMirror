@@ -91,6 +91,8 @@
 
 | 22 | Web UI 代码题判分崩溃修复（2026-09-01，用户浏览器真机发现）：pv-l3-01（swap_values）提交正确代码报「signal only works in main thread of the main interpreter」。根因：grade_code 的超时保护用 signal.alarm，只能在主线程使用；ThreadingHTTPServer 在请求线程里判分直接抛 ValueError。**修复两层**：①questions.grade_code 非主线程优雅降级（无超时保护但不崩）；②webui 改用单线程 HTTPServer（请求在主线程处理，超时保护继续生效；单用户请求本就被锁串行化，多线程无收益）。修复后 HTTP 原代码复测 1.0 分 + 要点讲解正常。回归测试：工作线程判分（test_webui.py）+ HTTP 判分代码题（smoke）| - | 用户真机报告 + HTTP 复测 | ✅ 修复验证通过 |
 
+| 23 | Web UI 断点续答（2026-09-01，用户浏览器真机反馈）：答 3 题后第 4 题判分报错、刷新浏览器，再点「开始答题」从第 1 题重来（题组进度只存在前端内存，刷新即丢）。**修复**：进度改存服务端（UserSession.quiz_questions/quiz_pos，commit 推进/finish 清空/开新组覆盖），新增 GET /api/quiz/resume + init 报 quiz_in_progress，前端欢迎页「继续答题（还剩 N 题）」主按钮；判分未提交的题也算未答。**另**：「已完成 13 次作答」非 bug（web 与 CLI 共用 SQLite：10 次 CLI + 3 次浏览器，第 4 题判分报错未落库不计入）。HTTP 复测：3 题组答 1 题后 init 报 remaining=2、resume 从第 2 题起。pytest 360 全绿 | - | 用户真机反馈 + HTTP 复测 | ✅ 修复验证通过 |
+
 ---
 
 ## 走一遍脚本（可复用，覆盖关键边界）
