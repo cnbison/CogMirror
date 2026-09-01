@@ -69,6 +69,8 @@ class Question:
         loadings: 5D 载荷 {"K": 1.2, "P": 0.3, ...}（未列维度为 0）
         explanation: 判分后给用户看的知识点解释（fill/code 用）
         option_explanations: choice 题每个选项的讲解（长度与 options 一致）
+        reference: code 题的参考答案（答错后揭晓；必须能通过自身全部测试用例，
+            由 test_questions 的回归测试保证）
     """
 
     problem_id: str
@@ -85,6 +87,7 @@ class Question:
     tests: tuple[TestCase, ...] = ()
     explanation: str = ""
     option_explanations: tuple[str, ...] = ()
+    reference: str = ""
 
 
 # ── 判分 ───────────────────────────────────────────────────────────
@@ -236,6 +239,7 @@ def _bank() -> list[Question]:
                 TestCase(args=("x", "y"), expected=("y", "x")),
             ),
             explanation="Python 支持多重赋值 a, b = b, a 直接交换。",
+            reference="def swap_values(a, b):\n    return (b, a)",
         ),
         Question(
             problem_id="pv-l4-01", skill_id="python.variables", topic="python.variables",
@@ -282,6 +286,7 @@ def _bank() -> list[Question]:
                 TestCase(args=(100,), expected=5050),
             ),
             explanation="累加器初值为 0，循环内 total += i。",
+            reference="def sum_to(n):\n    total = 0\n    for i in range(1, n + 1):\n        total += i\n    return total",
         ),
         Question(
             problem_id="pl-l3-02", skill_id="python.loops", topic="python.loops",
@@ -294,6 +299,7 @@ def _bank() -> list[Question]:
                 TestCase(args=([-1, -5, -3],), expected=-1),
             ),
             explanation="用第一个元素做初始最大值，逐个比较更新。",
+            reference="def max_of(nums):\n    biggest = nums[0]\n    for n in nums:\n        if n > biggest:\n            biggest = n\n    return biggest",
         ),
         Question(
             problem_id="pl-l4-01", skill_id="python.loops", topic="python.loops",
@@ -356,6 +362,7 @@ def _bank() -> list[Question]:
                 TestCase(args=(0,), expected=True),
             ),
             explanation="n % 2 == 0 判断偶数。",
+            reference="def is_even(n):\n    return n % 2 == 0",
         ),
         Question(
             problem_id="pf-l3-02", skill_id="python.functions", topic="python.functions",
@@ -369,6 +376,7 @@ def _bank() -> list[Question]:
                 TestCase(args=("xyz",), expected=0),
             ),
             explanation="遍历字符串，逐字符判断是否在 'aeiou'（统一小写后）中。",
+            reference="def count_vowels(s):\n    count = 0\n    for ch in s.lower():\n        if ch in \"aeiou\":\n            count += 1\n    return count",
         ),
         Question(
             problem_id="pf-l4-01", skill_id="python.functions", topic="python.functions",
@@ -431,6 +439,7 @@ def _bank() -> list[Question]:
                 TestCase(args=(5,), expected=120),
             ),
             explanation="基准情形 n <= 1 返回 1，否则返回 n * factorial(n-1)。",
+            reference="def factorial(n):\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)",
         ),
         Question(
             problem_id="pr-l4-01", skill_id="python.recursion", topic="python.recursion",
@@ -477,6 +486,7 @@ def _bank() -> list[Question]:
             prompt="定义函数 make_counter()：每次调用返回的函数计数加一并返回新计数值（利用闭包，从 1 开始计）。",
             func_name="make_counter",
             explanation="闭包内用 nonlocal 修改外层计数变量。",
+            reference="def make_counter():\n    count = 0\n    def counter():\n        nonlocal count\n        count += 1\n        return count\n    return counter",
         ),
         Question(
             problem_id="ps-l4-01", skill_id="python.scope", topic="python.scope",
@@ -521,6 +531,7 @@ def _bank() -> list[Question]:
                 TestCase(args=("",), expected=""),
             ),
             explanation="字符串乘法 s * 2 或 s + s 都能实现重复。",
+            reference="def repeat_word(s):\n    return s * 2",
         ),
         Question(
             problem_id="pv-l4-02", skill_id="python.variables", topic="python.variables",
@@ -560,6 +571,7 @@ def _bank() -> list[Question]:
                 TestCase(args=([2, 4, 6],), expected=3),
             ),
             explanation="遍历列表，用 n % 2 == 0 判断偶数并计数。",
+            reference="def count_even(nums):\n    count = 0\n    for n in nums:\n        if n % 2 == 0:\n            count += 1\n    return count",
         ),
         Question(
             problem_id="pl-l3-04", skill_id="python.loops", topic="python.loops",
@@ -572,6 +584,7 @@ def _bank() -> list[Question]:
                 TestCase(args=(1, 100), expected=5050),
             ),
             explanation="range(a, b+1) 含两端；累加器求和。",
+            reference="def sum_range(a, b):\n    total = 0\n    for i in range(a, b + 1):\n        total += i\n    return total",
         ),
         Question(
             problem_id="pl-l4-02", skill_id="python.loops", topic="python.loops",
@@ -598,6 +611,7 @@ def _bank() -> list[Question]:
                 TestCase(args=([5],), expected=(5, 5)),
             ),
             explanation="用索引 0 和 -1 取首尾元素，包成元组返回。",
+            reference="def first_last(nums):\n    return (nums[0], nums[-1])",
         ),
         Question(
             problem_id="pf-l3-04", skill_id="python.functions", topic="python.functions",
@@ -610,6 +624,7 @@ def _bank() -> list[Question]:
                 TestCase(args=([-1, 1],), expected=0),
             ),
             explanation="累加器从 0 开始遍历求和。",
+            reference="def sum_list(nums):\n    total = 0\n    for n in nums:\n        total += n\n    return total",
         ),
         Question(
             problem_id="pf-l4-02", skill_id="python.functions", topic="python.functions",
@@ -636,6 +651,7 @@ def _bank() -> list[Question]:
                 TestCase(args=(10,), expected=55),
             ),
             explanation="基准情形 n <= 1 返回 n；否则返回 fib(n-1) + fib(n-2)。",
+            reference="def fib(n):\n    if n <= 1:\n        return n\n    return fib(n - 1) + fib(n - 2)",
         ),
         Question(
             problem_id="pr-l3-03", skill_id="python.recursion", topic="python.recursion",
@@ -693,6 +709,7 @@ def _bank() -> list[Question]:
                 TestCase(args=(), expected=3),
             ),
             explanation="函数内用 global count 声明后，count += 1 修改的就是模块级变量，且跨调用保持。",
+            reference="count = 0\ndef step():\n    global count\n    count += 1\n    return count",
         ),
         Question(
             problem_id="ps-l3-03", skill_id="python.scope", topic="python.scope",
@@ -837,6 +854,7 @@ def _bank() -> list[Question]:
                 TestCase(args=(["a", "b", "a", "c"],), expected=["a", "b", "c"]),
             ),
             explanation="用集合 seen 记录已出现元素，遍历时第一次遇到才加入结果——既去重又保持原顺序。",
+            reference="def dedupe(items):\n    seen = set()\n    result = []\n    for x in items:\n        if x not in seen:\n            seen.add(x)\n            result.append(x)\n    return result",
         ),
         Question(
             problem_id="pl-l6-01", skill_id="python.loops", topic="python.loops",
@@ -848,6 +866,7 @@ def _bank() -> list[Question]:
                 TestCase(args=(1,), expected="*"),
             ),
             explanation="每行 '*'.repeat(i)（或 '*' * i），再用换行拼接各行。",
+            reference="def make_star_triangle(n):\n    return \"\\n\".join(\"*\" * i for i in range(1, n + 1))",
         ),
         Question(
             problem_id="pf-l6-01", skill_id="python.functions", topic="python.functions",
@@ -860,6 +879,7 @@ def _bank() -> list[Question]:
                 TestCase(args=(lambda n: n * n, 3), expected=81),
             ),
             explanation="函数是一等公民，可作为参数传递：return f(f(x)) 先调一次再调一次。",
+            reference="def apply_twice(f, x):\n    return f(f(x))",
         ),
         Question(
             problem_id="pr-l6-01", skill_id="python.recursion", topic="python.recursion",
@@ -873,6 +893,7 @@ def _bank() -> list[Question]:
                 TestCase(args=("hello",), expected="olleh"),
             ),
             explanation="基准情形 len(s) <= 1 直接返回 s；否则把首字符移到尾部：reverse_str(s[1:]) + s[0]。",
+            reference="def reverse_str(s):\n    if len(s) <= 1:\n        return s\n    return reverse_str(s[1:]) + s[0]",
         ),
         Question(
             problem_id="ps-l6-01", skill_id="python.scope", topic="python.scope",
@@ -880,6 +901,7 @@ def _bank() -> list[Question]:
             prompt="定义函数 make_adder(n)，返回一个把参数加上 n 的函数（闭包）。如 add5 = make_adder(5); add5(3) 返回 8。",
             func_name="make_adder",
             explanation="闭包捕获外层参数 n，返回的函数在调用时把 n 加到自己参数上（n 只读不改，无需 nonlocal）。",
+            reference="def make_adder(n):\n    def adder(x):\n        return x + n\n    return adder",
         ),
     ]
     return q

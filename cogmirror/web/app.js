@@ -207,13 +207,53 @@ function renderGraded(graded) {
         <textarea id="explain" rows="2"></textarea></label>
     </div>`;
   const ex = graded.option_explanation || graded.key_point || "";
+  // 答错当场揭晓正解 + 可展开的知识点讲解（真机反馈：只练错题学不到东西）
+  let solHtml = "";
+  if (!graded.correct && graded.solution) {
+    solHtml = solutionHtml(graded.solution) +
+      `<div class="row"><button class="ghost" id="btnCard">看「${esc(q.topic_label)}」知识点讲解</button></div>
+       <div id="cardBox"></div>`;
+  }
   document.getElementById("result").innerHTML = `
     <div class="score ${graded.correct ? "ok" : "bad"}">得分：${scoreTxt}</div>
     ${details}${ex ? `<p class="keypoint">${esc(ex)}</p>` : ""}
+    ${solHtml}
     ${explain}
     <div class="row"><button class="primary" id="btnNext">继续</button></div>`;
   document.getElementById("btnNext").onclick = commitAnswer;
+  const btnCard = document.getElementById("btnCard");
+  if (btnCard) btnCard.onclick = () => toggleCard("cardBox", q.topic);
   document.getElementById("result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function solutionHtml(sol) {
+  if (!sol) return "";
+  if (sol.code) {
+    return `<p class="sol-label">参考答案：</p><pre class="case">${esc(sol.code)}</pre>`;
+  }
+  const txt = sol.index != null ? `${sol.index}. ${sol.text}` : sol.text;
+  return `<p class="sol-label">正确答案：${esc(txt)}</p>` +
+    (sol.explain ? `<p class="keypoint">${esc(sol.explain)}</p>` : "");
+}
+
+async function toggleCard(boxId, topic) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  if (box.innerHTML) { box.innerHTML = ""; return; }  // 再点一次收起
+  box.innerHTML = `<p class="muted small">加载中…</p>`;
+  try {
+    const card = await api(`/api/card?topic=${encodeURIComponent(topic)}`);
+    box.innerHTML = cardHtml(card);
+  } catch (e) {
+    box.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+  }
+}
+
+function cardHtml(card) {
+  return `<div class="kcard"><b>${esc(card.title)}</b>` +
+    (card.blocks || []).map(([t, s]) =>
+      t === "code" ? `<pre class="case">${esc(s)}</pre>` : `<p>${esc(s)}</p>`).join("") +
+    `</div>`;
 }
 
 async function commitAnswer() {
@@ -320,9 +360,27 @@ function renderMap(d, feedback) {
 
   app.innerHTML =
     (feedback.length ? `<div class="card live">${feedback.map((l) => `<p>${esc(l)}</p>`).join("")}</div>` : "")
+    + wrongReviewHtml(d.wrong_review)
     + `<div class="card map"><h2>你的认知地图</h2>
        <p class="muted small">怎么看：每行条形 = 该维度的掌握概率，越接近 100% 越稳；作答越多，数值越准。</p>
        ${secs.join("")}</div>`;
+  document.querySelectorAll(".btnWRCard").forEach((b) => {
+    b.onclick = async () => {
+      const topic = b.dataset.topic;
+      const existing = document.getElementById(`card-${topic}`);
+      if (existing) { existing.remove(); return; }
+      const div = document.createElement("div");
+      div.id = `card-${topic}`;
+      div.innerHTML = `<p class="muted small">加载中…</p>`;
+      document.getElementById("wrCardBox").appendChild(div);
+      try {
+        const card = await api(`/api/card?topic=${encodeURIComponent(topic)}`);
+        div.innerHTML = cardHtml(card);
+      } catch (e) {
+        div.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+      }
+    };
+  });
   const btnP = document.getElementById("btnPractice");
   if (btnP) btnP.onclick = () => startQuiz(
     `?user=${encodeURIComponent(S.user)}&n=${sp.n}&topic=${encodeURIComponent(sp.topic)}&level=${encodeURIComponent(sp.level || "")}`);
@@ -331,6 +389,27 @@ function renderMap(d, feedback) {
 
 function section(title, inner) {
   return `<section><h3>${esc(title)}</h3>${inner}</section>`;
+}
+
+/* 组末错题回顾（真机反馈：答错的题答完即消失，重练也学不到东西） */
+function wrongReviewHtml(wrong) {
+  const wr = wrong || [];
+  if (!wr.length) return "";
+  const topics = [...new Map(wr.map((w) => [w.topic, w.topic_label]))];
+  return `<div class="card review"><h2>本轮错题回顾</h2>
+    <p class="muted small">答错的题都在这里，附正解与讲解——先弄懂，再看下面的认知地图。</p>
+    ${wr.map((w) => `
+      <div class="wrong-item">
+        <p class="meta">${esc(w.topic_label)} · 得分 ${(w.score * 100).toFixed(0)}%</p>
+        <p class="prompt">${esc(w.prompt)}</p>
+        ${w.user_answer_text ? `<p class="muted small">你的答案：${esc(w.user_answer_text)}</p>` : ""}
+        ${solutionHtml(w.solution)}
+        ${w.explain ? `<p class="keypoint">${esc(w.explain)}</p>` : ""}
+      </div>`).join("")}
+    <div class="row">${topics.map(([t, l]) =>
+      `<button class="ghost btnWRCard" data-topic="${esc(t)}">看「${esc(l)}」知识点讲解</button>`).join("")}</div>
+    <div id="wrCardBox"></div>
+  </div>`;
 }
 
 /* ── 启动 ─────────────────────────────────────────────────────── */

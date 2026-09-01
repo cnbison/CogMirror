@@ -54,6 +54,17 @@ class TestBank:
         s_load = a_matrix[:, 2].max()
         assert k_load > 0 and p_load > 0 and s_load > 0
 
+    def test_code_references_exist_and_pass(self, bank):
+        """答错揭晓正解（web 辅导链路）：每道 code 题都有参考答案，
+        且参考答案能通过自身全部测试用例（含 make_counter/make_adder
+        特殊判分与 global 题的跨调用状态）。"""
+        code_qs = [q for q in bank.all_questions() if q.qtype == "code"]
+        assert len(code_qs) >= 19
+        for q in code_qs:
+            assert q.reference, f"{q.problem_id} 缺参考答案"
+            score, details = bank.grade_answer(q, q.reference)
+            assert score == 1.0, f"{q.problem_id} 参考答案未满分: {details}"
+
     def test_each_topic_has_six_l3_plus(self, bank):
         """F10 收口：每 topic 至少 6 道 L3+，且保留 L1/L2 基础题.
 

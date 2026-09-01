@@ -57,7 +57,7 @@ def test_quiz_strips_answers(web):
     data = web.api_quiz("t1", 3, "", None, False)
     assert data["count"] == 3
     raw = json.dumps(data)
-    for leak in ("correct_answer", "option_explanations", "explanation"):
+    for leak in ("correct_answer", "option_explanations", "explanation", "reference", "solution"):
         assert leak not in raw, f"题面泄漏 {leak}"
     q = data["questions"][0]
     assert q["problem_id"] == "pv-l1-01"
@@ -358,6 +358,105 @@ def test_syntax_error_giveup_commits_zero(web):
         assert rows[0]["score"] == 0.0
     finally:
         db.close()
+
+
+# ── 答题辅导：正解揭晓 / 组末错题回顾 / 知识点卡片 ────────────────
+# （真机反馈：答错的题答完即消失、重练也学不到东西）
+
+
+def test_grade_wrong_reveals_solution(web):
+    # choice：答错 -> 揭晓正确选项下标/文本/讲解；答对 -> 不带 solution
+    g = web.api_grade("t1", "pv-l1-01", "0")
+    assert g["correct"] is False
+    assert g["solution"]["index"] == 1
+    assert g["solution"]["text"] == "x = 5"
+    assert "正确" in g["solution"]["explain"]
+    g = web.api_grade("t1", "pv-l1-01", "1")
+    assert g["correct"] is True and "solution" not in g
+
+
+def test_grade_wrong_fill_and_code_solution(web):
+    g = web.api_grade("t1", "pv-l2-02", "[9]")  # fill 答错
+    assert g["solution"]["text"] == "[1, 2, 3]"
+    g = web.api_grade("t1", "pv-l3-01", "def swap_values(a, b):\n    return (a, b)")  # code 答错
+    assert "return (b, a)" in g["solution"]["code"]
+
+
+def test_finish_returns_wrong_review(web):
+    # 1 题答错、1 题答对（pv-l2-01 正确选项是 2）-> finish 只回顾错题
+    _run_quiz(web, "t1", [("0", 0.3, ""), ("2", 0.8, "")])
+    payload = web.api_finish("t1")
+    wr = payload["wrong_review"]
+    assert len(wr) == 1 and wr[0]["problem_id"] == "pv-l1-01"
+    assert wr[0]["topic_label"] == "变量赋值"
+    assert wr[0]["user_answer_text"] == "0. x == 5"
+    assert wr[0]["solution"]["index"] == 1
+    assert wr[0]["score"] == 0.0
+    # 回顾一次性消费：再次 finish 不重复出（旧组已清）
+    assert web.api_finish("t1")["wrong_review"] == []
+
+
+def test_wrong_review_partial_credit_counts(web):
+    # code 部分正确（score < 0.6）也进错题回顾
+    web.api_quiz("t1", 1, "python.variables", None, False)
+    web.api_grade("t1", "pv-l6-01",
+                  "def dedupe(items):\n    return list(set(items))")  # 顺序不保证 -> 部分分
+    web.api_commit("t1", "", None)
+    payload = web.api_finish("t1")
+    wr = payload["wrong_review"]
+    assert len(wr) == 1 and 0 < wr[0]["score"] < 0.6
+    assert "def dedupe" in wr[0]["solution"]["code"]
+
+
+def test_wrong_review_survives_browser_refresh(web):
+    # 错题记录存服务端会话：答错后刷新（重新 init/resume）再答完，回顾仍含错题
+    data = web.api_quiz("t1", 2, "", None, False)
+    q1, q2 = data["questions"]
+    web.api_grade("t1", q1["problem_id"], "0")
+    web.api_commit("t1", "", 0.3)
+    # 模拟浏览器刷新：重新 init + resume
+    assert web.api_init("t1")["quiz_in_progress"]["remaining"] == 1
+    resumed = web.api_quiz_resume("t1")
+    assert resumed["questions"][0]["problem_id"] == q2["problem_id"]
+    web.api_grade("t1", q2["problem_id"], "2")  # pv-l2-01 正确选项
+    web.api_commit("t1", "", 0.8)
+    wr = web.api_finish("t1")["wrong_review"]
+    assert [w["problem_id"] for w in wr] == [q1["problem_id"]]
+
+
+def test_new_quiz_resets_wrong_review(web):
+    # 开新组清空上一组错题记录
+    _run_quiz(web, "t1", [("0", 0.3, "")])
+    web.api_finish("t1")
+    _run_quiz(web, "t1", [("1", 0.8, "")])
+    assert web.api_finish("t1")["wrong_review"] == []
+
+
+def test_card_api_all_topics_covered():
+    from cogmirror.knowledge_cards import CARDS, get_card
+    assert set(CARDS) == {"python.variables", "python.loops", "python.functions",
+                          "python.recursion", "python.scope"}
+    for topic, card in CARDS.items():
+        assert card["title"], f"{topic} 卡片缺标题"
+        assert len(card["blocks"]) >= 3, f"{topic} 卡片内容太薄"
+        assert any(t == "code" for t, _ in card["blocks"]), f"{topic} 卡片缺代码示例"
+    assert get_card("python.nonexistent") is None
+
+
+def test_card_http_endpoint(web):
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(web))
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{port}"
+        with urllib.request.urlopen(f"{base}/api/card?topic=python.loops") as r:
+            card = json.loads(r.read())
+            assert card["title"] == "循环"
+        with pytest.raises(Exception):
+            urllib.request.urlopen(f"{base}/api/card?topic=python.nonexistent")
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 # ── 真人验证准备：多用户数据隔离 ─────────────────────────────────

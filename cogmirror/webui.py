@@ -13,6 +13,7 @@ API（全部 JSON，复用 CLI 的纯函数，判分/引擎逻辑零重复）：
                                    -> 引擎更新 + 落库 + 逐题实时反馈
     POST /api/quiz/finish         {user} -> 组末对账 + 完整地图数据 + 建议
     GET  /api/map?user=           只看地图（无 delta，同 --map-only）
+    GET  /api/card?topic=         知识点小卡片（答错后前端可展开学习）
 
 流程刻意镜像 cli.run_session：grade（纯判分）-> [答错追问解释] -> commit
 （update + save_response）-> finish（reconcile + 证据落库），P4 的
@@ -57,6 +58,7 @@ from .cli import (
     suggested_practice,
 )
 from .db import Database
+from .knowledge_cards import get_card
 from .misconception_tracker import MisconceptionTracker
 from .questions import QuestionBank
 from .session import last_session_struggles, multi_session_trend, trend_line
@@ -86,6 +88,8 @@ class UserSession:
         # 不再从头出题——真机反馈）。quiz_pos = 下一道未答题的下标
         self.quiz_questions: List[Any] = []
         self.quiz_pos: int = 0
+        # 本组错题记录（score < 0.6）：finish 时随地图返回，供组末错题回顾
+        self.quiz_wrong: List[Dict[str, Any]] = []
         self._n_rows_before = len(db.load_responses(user_id))
         state = db.load_latest_state(user_id)
         self._state_existed = state is not None
@@ -139,6 +143,7 @@ class UserSession:
         self.prev_state = copy.deepcopy(self.state) if questions else self.prev_state
         self.quiz_questions = list(questions)
         self.quiz_pos = 0
+        self.quiz_wrong = []
         return self._strip_questions(questions)
 
     def resume_questions(self) -> List[Dict[str, Any]]:
@@ -165,6 +170,34 @@ class UserSession:
 
     # ── 单题：grade（纯判分） -> commit（更新 + 落库） ─────────────
 
+    @staticmethod
+    def _solution_payload(q) -> Dict[str, Any]:
+        """答错后揭晓的正解（题面下发前剥离，判分后才生成）."""
+        if q.qtype == "choice":
+            sol = {"index": q.answer, "text": q.options[q.answer]}
+            if q.option_explanations and 0 <= q.answer < len(q.option_explanations):
+                sol["explain"] = q.option_explanations[q.answer]
+            return sol
+        if q.qtype == "fill":
+            return {"text": " / ".join(q.accepted)}
+        return {"code": q.reference}
+
+    @classmethod
+    def _tutoring_payload(cls, q, answer: str, score: float) -> Dict[str, Any]:
+        """一份题的完整辅导信息（正解 + 你所选/所写的讲解）."""
+        payload: Dict[str, Any] = {"solution": cls._solution_payload(q)}
+        if q.qtype == "choice" and q.option_explanations:
+            try:
+                chosen = int(answer.strip())
+            except ValueError:
+                chosen = -1
+            if 0 <= chosen < len(q.option_explanations):
+                payload["explain"] = q.option_explanations[chosen]
+        elif q.explanation:
+            payload["explain"] = q.explanation
+        payload["score"] = score
+        return payload
+
     def grade(self, problem_id: str, answer: str) -> Dict[str, Any]:
         q = self.bank.get(problem_id)
         if q is None:
@@ -190,6 +223,10 @@ class UserSession:
                 payload["option_explanation"] = q.option_explanations[chosen]
         elif q.explanation:
             payload["key_point"] = q.explanation
+        # 答错当场揭晓正解（真机反馈：只练错题学不到东西）。语法错误路径
+        # 前端只显示修正横幅不显示正解（修正重交是预期路径），放弃时才露出
+        if score < 0.6:
+            payload["solution"] = self._solution_payload(q)
         return payload
 
     def commit(self, explanation: str, self_confidence: Optional[float]) -> Dict[str, Any]:
@@ -235,6 +272,20 @@ class UserSession:
         if line:
             live.append(line)
         self.quiz_pos += 1  # 断点续答：已答一题（真机反馈，刷新后不再从头出题）
+        # 组末错题回顾：答错（score < 0.6，部分正确也算）的题记下完整辅导
+        # 信息，finish 时随地图返回。存服务端会话，浏览器刷新不丢
+        if score < 0.6:
+            record = {
+                "problem_id": q.problem_id, "topic": q.topic,
+                "topic_label": _topic_label(q.topic), "qtype": q.qtype,
+                "prompt": q.prompt,
+            }
+            record.update(self._tutoring_payload(q, answer, score))
+            if q.qtype == "choice" and 0 <= _opt_int(answer) < len(q.options):
+                record["user_answer_text"] = f"{_opt_int(answer)}. {q.options[_opt_int(answer)]}"
+            elif q.qtype == "fill":
+                record["user_answer_text"] = answer
+            self.quiz_wrong.append(record)
         return {"live_feedback": live, "misc_id": misc_id}
 
     # ── 组末：对账 + 地图 ─────────────────────────────────────────
@@ -243,8 +294,10 @@ class UserSession:
         # 先出地图（此时本组行仍在 session_rows 里，delta/反思句基于本组），
         # 再对账并推进窗口
         payload = self.map_payload()
+        payload["wrong_review"] = self.quiz_wrong  # 组末错题回顾（真机反馈）
         self.quiz_questions = []
         self.quiz_pos = 0
+        self.quiz_wrong = []
         rows = self.db.load_responses(self.user_id)
         self.tracker.reconcile(rows[self._n_rows_before:])
         # 对账窗口 = 一个题组（web 会话边界），对账过的行不再参与下次
@@ -442,12 +495,24 @@ class WebUI:
             s = self.session(user_id)
             return s.map_payload()
 
+    @staticmethod
+    def api_card(topic: str) -> Dict[str, Any]:
+        return get_card(topic) or {}
+
 
 def _parse_level(raw: str) -> Optional[BloomLevel]:
     from .cli import _LEVEL_NAMES
     if not raw:
         return None
     return _LEVEL_NAMES.get(raw.strip().upper())
+
+
+def _opt_int(raw: str) -> int:
+    """choice 题答案文本 -> 选项下标（解析失败返回 -1）."""
+    try:
+        return int(raw.strip())
+    except (ValueError, AttributeError):
+        return -1
 
 
 def _opt_float(raw) -> Optional[float]:
@@ -515,6 +580,15 @@ def make_handler(webui: WebUI) -> type:
                 qs = parse_qs(parsed.query)
                 user = qs.get("user", [webui.default_user])[0]
                 self._send_json(webui.api_map(user))
+                return
+            if parsed.path == "/api/card":
+                qs = parse_qs(parsed.query)
+                topic = qs.get("topic", [""])[0]
+                card = webui.api_card(topic)
+                if card:
+                    self._send_json(card)
+                else:
+                    self._send_json({"error": f"没有该知识点的卡片: {topic}"}, 404)
                 return
             self.send_error(404)
 
