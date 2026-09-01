@@ -89,6 +89,8 @@
 
 | 21 | 数据事故记录（2026-09-01，web 练习轮自测发现）：「本题是否命中 misconception/伪自信」原用「最后一条命中的题号 == 本题」判断，重练曾命中的题且本次未命中时，旧行命中误标进新行（misc_id / illusory_flag 双字段，CLI 与 web 同源 bug）。**修复**：改用 update 前后命中数增量判断。**污染范围（规则 6）**：真实 local_user 库零污染（无同题重练记录、无 misc_id/illusory_flag 非零行、misconception_evidence 0 行）；受影响仅测试场景，既有结论无需重验证。回归测试已固化（test_webui.py + test_cli.py 各一条） | - | SQL 核查真实库 + 回归测试 | ✅ 修复并核实零污染 |
 
+| 22 | Web UI 代码题判分崩溃修复（2026-09-01，用户浏览器真机发现）：pv-l3-01（swap_values）提交正确代码报「signal only works in main thread of the main interpreter」。根因：grade_code 的超时保护用 signal.alarm，只能在主线程使用；ThreadingHTTPServer 在请求线程里判分直接抛 ValueError。**修复两层**：①questions.grade_code 非主线程优雅降级（无超时保护但不崩）；②webui 改用单线程 HTTPServer（请求在主线程处理，超时保护继续生效；单用户请求本就被锁串行化，多线程无收益）。修复后 HTTP 原代码复测 1.0 分 + 要点讲解正常。回归测试：工作线程判分（test_webui.py）+ HTTP 判分代码题（smoke）| - | 用户真机报告 + HTTP 复测 | ✅ 修复验证通过 |
+
 ---
 
 ## 走一遍脚本（可复用，覆盖关键边界）

@@ -89,8 +89,30 @@ def test_grade_then_commit_flow(web):
 
 
 def test_grade_code_partial_credit(web):
-    g = web.api_grade("t1", "pv-l3-01", "def make_counter():\n    pass")
-    assert g["score"] == 0.0  # 代码题真实执行判分（细节在 test_questions 覆盖）
+    g = web.api_grade("t1", "pv-l3-01", "def swap_values(a, b):\n    return (b, a)")
+    assert g["score"] == 1.0
+    g = web.api_grade("t1", "pv-l2-02", "[1, 2, 3]")
+    assert g["score"] == 1.0
+
+
+def test_grade_code_in_worker_thread():
+    # 回归（web 真机发现）：代码题判分的 signal.alarm 只在主线程可用，
+    # 请求线程里判分曾抛 "signal only works in main thread" -> 现在
+    # 非主线程优雅降级（无超时保护但不崩）
+    import threading
+    from cogmirror.questions import QuestionBank
+    bank = QuestionBank()
+    results = {}
+
+    def run():
+        q = bank.get("pv-l3-01")
+        results["out"] = bank.grade_answer(q, "def swap_values(a, b):\n    return (b, a)")
+
+    t = threading.Thread(target=run)
+    t.start()
+    t.join(timeout=10)
+    score, details = results["out"]
+    assert score == 1.0, details
 
 
 def test_commit_explanation_triggers_misc_and_live_feedback(web):
@@ -206,6 +228,14 @@ def test_http_smoke(web):
         req = urllib.request.Request(
             f"{base}/api/grade",
             data=json.dumps({"user": "t1", "problem_id": "pv-l1-01", "answer": "1"}).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as r:
+            assert json.loads(r.read())["score"] == 1.0
+        # 回归（真机 bug）：代码题在请求线程判分曾抛 signal 错误 -> 现在 200 + 正常判分
+        req = urllib.request.Request(
+            f"{base}/api/grade",
+            data=json.dumps({"user": "t1", "problem_id": "pv-l3-01",
+                             "answer": "def swap_values(a, b):\n    return (b, a)"}).encode(),
             headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req) as r:
             assert json.loads(r.read())["score"] == 1.0

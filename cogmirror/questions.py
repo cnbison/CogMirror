@@ -17,6 +17,7 @@ MIRT 载荷（loadings）：每题声明其在 5D 维度上的区分度，这是
 from __future__ import annotations
 
 import signal
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -107,14 +108,22 @@ def grade_fill(question: Question, user_answer: str) -> float:
     return 0.0
 
 
+def _alarm_enabled() -> bool:
+    """signal.alarm 只在主线程可用：非主线程（如嵌入方在请求线程里判分）
+    优雅降级为无超时保护，而不是抛 ValueError（web 真机发现）."""
+    return threading.current_thread() is threading.main_thread()
+
+
 def grade_code(question: Question, user_code: str, timeout_sec: int = 5) -> tuple[float, list[dict]]:
     """运行测试用例判分，返回 (score, 每个用例的通过详情)."""
     # globals/locals 用同一个 dict：拆开会让用户函数 __globals__ 落在独立 dict，
     # 递归/全局名字查找失败（自测发现：正确的递归代码被判 NameError）
     namespace: dict[str, Any] = {"__builtins__": __builtins__}
-    old_handler = signal.signal(signal.SIGALRM, _alarm_handler)
+    alarm_on = _alarm_enabled()
+    old_handler = signal.signal(signal.SIGALRM, _alarm_handler) if alarm_on else None
     try:
-        signal.alarm(timeout_sec)
+        if alarm_on:
+            signal.alarm(timeout_sec)
         try:
             exec(user_code, namespace, namespace)  # noqa: S102 - 本地单用户学习工具
         except GradingTimeout:
@@ -132,9 +141,11 @@ def grade_code(question: Question, user_code: str, timeout_sec: int = 5) -> tupl
         passed = 0
         for tc in question.tests:
             try:
-                signal.alarm(timeout_sec)
+                if alarm_on:
+                    signal.alarm(timeout_sec)
                 got = func(*tc.args, **tc.kwargs)
-                signal.alarm(0)
+                if alarm_on:
+                    signal.alarm(0)
                 ok = got == tc.expected
             except GradingTimeout:
                 details.append({"args": tc.args, "expected": tc.expected, "got": "超时", "passed": False})
@@ -148,8 +159,9 @@ def grade_code(question: Question, user_code: str, timeout_sec: int = 5) -> tupl
         score = passed / len(question.tests) if question.tests else 0.0
         return score, details
     finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
+        if alarm_on:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
 
 
 def grade(question: Question, user_answer: str, timeout_sec: int = 5) -> tuple[float, list[dict]]:

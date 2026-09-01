@@ -28,7 +28,7 @@ import copy
 import json
 import threading
 import webbrowser
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
@@ -494,7 +494,10 @@ def serve(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     webui = WebUI(args.db, default_user=args.user)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(webui))
+    # 单线程 HTTPServer（非 Threading）：请求在主线程处理，代码题判分的
+    # signal.alarm 超时保护得以生效；单用户本地场景请求本就被锁串行化，
+    # 多线程无收益（真机发现：请求线程里 signal.alarm 直接抛 ValueError）
+    server = HTTPServer(("127.0.0.1", args.port), make_handler(webui))
     url = f"http://127.0.0.1:{args.port}"
     print(f"CogMirror Web UI 已启动：{url}（Ctrl-C 退出，数据在 {args.db}）")
     if args.open:
