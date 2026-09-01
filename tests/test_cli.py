@@ -1009,3 +1009,26 @@ def test_misc_evidence_closed_loop(monkeypatch, tmp_path):
     )
     assert "[误解点]" in out
     assert "置信度 33%" in out  # (0+1)/(0+1+2)：被克服后权重回落
+
+
+# ── P4 命中标记回归（web 练习轮自测发现的 CLI 同款 bug） ──────────
+
+
+def test_repractice_no_stale_misc_mislabel(monkeypatch, tmp_path):
+    # 第一轮 pv-l1-01 答错 + M8 解释 -> misc_id 落库；--review 重练答错
+    # 但不带解释 -> 新行不得误标旧命中（旧行为用「最后命中题号==本题」
+    # 判断，重练曾命中题会把旧行命中误标进新行）
+    from cogmirror.db import Database
+    run_cli(monkeypatch, tmp_path,
+            answers=["\n", "0\n", _M8_EXPLANATION + "\n"],
+            args=["--questions", "1"])
+    run_cli(monkeypatch, tmp_path,
+            answers=["\n", "0\n", "\n"],
+            args=["--review"])
+    db = Database(str(tmp_path / "cli.db"))
+    try:
+        rows = db.load_responses("t1")
+        assert rows[0]["misc_id"] == "M8"
+        assert rows[1]["misc_id"] is None, "重练未命中不应误标旧 misc_id"
+    finally:
+        db.close()

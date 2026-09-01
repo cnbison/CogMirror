@@ -317,21 +317,22 @@ def run_session(engine: BeliefEngine, bank: QuestionBank, state: BeliefState,
         tc_before = state.C.tc_states.get(q.skill_id)
         prev_tc_status = tc_before.status if tc_before else None
         illusory_before = len(state.C.illusory_confidence_hits)
+        misc_before = len(state.C.misconception_hits)
         obs = Observation(
             skill_id=q.skill_id, problem_id=q.problem_id, score=score,
             bloom_level=q.bloom_level, self_confidence=self_conf,
             user_answer=answer, explanation_text=explanation,
         )
         state = engine.update(state, obs)
-        # P4 第 0 步 B 路：命中记录落库（对账原料）。引擎每次 update 最多
-        # 追加一条 misconception 命中，用触发题号判断本题是否命中
+        # P4 第 0 步 B 路：命中记录落库（对账原料）。本题是否新增命中用
+        # 命中数增量判断（引擎每次 update 最多追加一条）--不能用「最后一条
+        # 命中的题号 == 本题」：重练曾命中的题且本次未命中时，旧行命中会被
+        # 误标进新行（web 练习轮自测发现）
         misc_id = None
-        if (state.C.misconception_hits
-                and state.C.misconception_hits[-1].trigger_problem_id == q.problem_id):
+        if len(state.C.misconception_hits) > misc_before:
             misc_id = state.C.misconception_hits[-1].misc_id
         db.save_response(state.user_id, obs.to_dict(),
-                         illusory_flag=bool(state.C.illusory_confidence_hits
-                                            and state.C.illusory_confidence_hits[-1].problem_id == q.problem_id),
+                         illusory_flag=len(state.C.illusory_confidence_hits) > illusory_before,
                          misc_id=misc_id)
         live = _liminal_live_feedback(engine, state, q.skill_id, score,
                                       q.bloom_level, prev_tc_status)

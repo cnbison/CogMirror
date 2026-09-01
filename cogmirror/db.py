@@ -69,7 +69,9 @@ class Database:
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path)
+        # check_same_thread=False：Web UI（webui.py）在请求线程里使用连接，
+        # 其 API 层有全局锁串行化；CLI 单线程不受影响
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         # P4：responses 加 misc_id 列（命中记录落库，对账原料）。既有库的表
