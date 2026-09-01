@@ -358,3 +358,23 @@ def test_syntax_error_giveup_commits_zero(web):
         assert rows[0]["score"] == 0.0
     finally:
         db.close()
+
+
+# ── 真人验证准备：多用户数据隔离 ─────────────────────────────────
+
+
+def test_multi_user_data_isolation(web):
+    # 朋友试用场景：切换用户后答题数据完全隔离（web ?user= / 切换按钮）
+    _run_quiz(web, "alice", [("1", 0.8, "")])
+    _run_quiz(web, "bob", [("0", 0.3, _M8_TEXT)])
+    db = Database(web.db_path)
+    try:
+        a = db.load_responses("alice")
+        b = db.load_responses("bob")
+        assert len(a) == 1 and a[0]["user_id"] == "alice"
+        assert len(b) == 1 and b[0]["user_id"] == "bob" and b[0]["misc_id"] == "M8"
+        # alice 的地图不含 bob 的命中
+        assert web.api_map("alice")["misc_hits"] == []
+        assert web.api_map("bob")["misc_hits"][0]["problem_id"] == "pv-l1-01"
+    finally:
+        db.close()

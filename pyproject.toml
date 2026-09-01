@@ -20,6 +20,7 @@ spike = ["openai>=1.0"]
 
 [project.scripts]
 cogmirror = "cogmirror.cli:main"
+cogmirror-web = "cogmirror.webui:serve"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cogmirror"]

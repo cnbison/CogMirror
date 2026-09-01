@@ -543,7 +543,7 @@ def make_handler(webui: WebUI) -> type:
 
 def serve(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="cogmirror-webui", description="CogMirror 本地 Web UI（学生端单页）")
+        prog="cogmirror-web", description="CogMirror 本地 Web UI（学生端单页）")
     parser.add_argument("--user", default="local_user", help="用户 ID（本地单用户默认 local_user）")
     parser.add_argument("--db", default="data/cogmirror.db", help="SQLite 路径")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="端口（默认 8300）")

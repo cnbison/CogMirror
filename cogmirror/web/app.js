@@ -64,6 +64,7 @@ async function showWelcome() {
         继续答题（还剩 ${init.quiz_in_progress.remaining} 题）</button>` : ""}
       <button class="${init.quiz_in_progress ? "" : "primary"}" id="btnStart">开始答题</button>
       ${init.is_new ? "" : `<button id="btnMap">只看认知地图</button>`}
+      <button id="btnSwitchUser" class="ghost">切换用户</button>
     </div>
   </div>`;
   const btnResume = document.getElementById("btnResume");
@@ -72,6 +73,15 @@ async function showWelcome() {
     S.questions = data.questions;
     S.idx = 0;
     if (S.questions.length) renderQuestion();
+  };
+  const btnSwitch = document.getElementById("btnSwitchUser");
+  if (btnSwitch) btnSwitch.onclick = () => {
+    const name = prompt(
+      `切换用户（当前：${S.user}）。\n给别人试用时请输入 TA 自己的名字，` +
+      `答题数据完全隔离、互不污染：`, "");
+    if (name && name.trim()) {
+      location.href = `${location.pathname}?user=${encodeURIComponent(name.trim())}`;
+    }
   };
   document.getElementById("btnStart").onclick = () => {
     const review = document.getElementById("setReview").checked;

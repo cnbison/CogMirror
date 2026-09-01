@@ -22,7 +22,8 @@ python -m cogmirror.webui --open   # 浏览器答题（本地 Web UI，代码题
 | 命令 | 作用 |
 | --- | --- |
 | `cogmirror` | 做一组题（默认 10 道）+ 认知地图 |
-| `python -m cogmirror.webui [--port 8300] [--user local_user]` | 浏览器答题 + 认知地图（数据与 CLI 共用同一 SQLite，`--open` 自动开浏览器） |
+| `python -m cogmirror.webui`（或 `cogmirror-web`，或**双击 `start-webui.command`**） | 浏览器答题 + 认知地图（数据与 CLI 共用同一 SQLite，`--open` 自动开浏览器） |
+| 欢迎页「切换用户」 | 给别人试用：让 TA 用自己的名字开新用户，答题数据完全隔离、互不污染（对应 URL `?user=名字`） |
 | `cogmirror --questions 3` | 本次做 3 道题 |
 | `cogmirror --topic python.loops --level L3` | 只练指定 topic / 层级（L1-L6 或层名） |
 | `cogmirror --map-only` | 只看地图不答题 |

@@ -156,3 +156,7 @@ section p { margin: 6px 0; }
 .syntax-err p { margin: 4px 0; }
 .syntax-err pre.case { background: #fff; margin: 6px 0; padding: 6px 10px;
   border-radius: 6px; }
+
+button.ghost { border: none; background: none; color: var(--muted);
+  padding: 9px 10px; font-size: 13.5px; }
+button.ghost:hover { color: var(--accent); }
