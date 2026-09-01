@@ -129,7 +129,13 @@ def grade_code(question: Question, user_code: str, timeout_sec: int = 5) -> tupl
         except GradingTimeout:
             return 0.0, [{"error": f"代码执行超时（>{timeout_sec}s），疑似死循环，所有用例未通过"}]
         except SyntaxError as e:
-            return 0.0, [{"error": f"语法错误: {e}"}]
+            # 语法错误是笔误不是概念信号：带行号 + 源码行，供 web 端
+            # 「修正后重新提交」（grade 纯判分不落库，重交零成本）
+            return 0.0, [{
+                "error": f"语法错误（第 {e.lineno} 行）: {e.msg}",
+                "syntax_error": True,
+                "line": (e.text or "").rstrip("\n"),
+            }]
         except Exception as e:  # noqa: BLE001
             return 0.0, [{"error": f"定义阶段异常: {type(e).__name__}: {e}"}]
 

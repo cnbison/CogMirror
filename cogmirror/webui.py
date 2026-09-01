@@ -174,6 +174,13 @@ class UserSession:
                         "details": details}
         payload: Dict[str, Any] = {"problem_id": problem_id, "score": score,
                                    "correct": score >= 0.6, "details": details}
+        # 语法错误可修正重交（retryable）：笔误不是概念掌握信号，不计入
+        # 认知估计；用户可修正后再提交，或放弃（commit 后才落库计分）
+        if details and details[0].get("syntax_error"):
+            payload["syntax_error"] = {
+                "message": details[0]["error"],
+                "line": details[0].get("line") or "",
+            }
         if q.qtype == "choice" and q.option_explanations:
             try:
                 chosen = int(answer.strip())

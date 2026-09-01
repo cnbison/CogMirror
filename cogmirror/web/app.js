@@ -151,12 +151,35 @@ async function submitAnswer() {
   btn.textContent = "判分中…";
   try {
     const graded = await api("/api/grade", { user: S.user, problem_id: q.problem_id, answer });
+    if (graded.syntax_error) {
+      // 语法错误 = 笔误不是概念信号：保留编辑器就地修正重交（不进判分
+      // 结果视图、不落库）；「放弃此题」按 0 分提交作保底
+      S.graded = graded;
+      showSyntaxBanner(graded.syntax_error);
+      btn.disabled = false;
+      btn.textContent = "提交";
+      document.getElementById("answer").focus();
+      return;
+    }
     renderGraded(graded);
   } catch (e) {
     alert(e.message);
     btn.disabled = false;
     btn.textContent = "提交";
   }
+}
+
+function showSyntaxBanner(err) {
+  document.getElementById("result").innerHTML = `
+    <div class="syntax-err">
+      <p><b>${esc(err.message)}</b></p>
+      ${err.line ? `<pre class="case">${esc(err.line)}</pre>` : ""}
+      <p class="muted small">语法错误通常是笔误，不算你对概念的掌握——修正上面的代码后重新提交即可；
+        确实修不出来就放弃本题（计 0 分）。</p>
+      <button id="btnGiveup">放弃此题（计 0 分）</button>
+    </div>`;
+  document.getElementById("btnGiveup").onclick = () => renderGraded(S.graded);
+  document.getElementById("result").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function renderGraded(graded) {

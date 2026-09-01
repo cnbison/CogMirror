@@ -318,3 +318,43 @@ def test_zero_progress_group_no_resume_button(web):
     # 零进度的组（刚开未答）不显示「继续」——与开始答题等价，只会造成困惑
     web.api_quiz("t1", 10, "", None, False)
     assert "quiz_in_progress" not in web.api_init("t1")
+
+
+# ── 语法错误可修正重交（真机反馈：少一个冒号直接判 0 不合理） ────
+
+
+def test_syntax_error_retryable_payload(web):
+    # 语法错误 -> payload 带 syntax_error（行号 + 源码行），供前端就地修正重交
+    g = web.api_grade("t1", "pv-l3-01", "def swap_values(a, b)\n    return (b, a)")
+    assert g["score"] == 0.0
+    assert "第 1 行" in g["syntax_error"]["message"]
+    assert g["syntax_error"]["line"] == "def swap_values(a, b)"
+    # 正常判分不带该标记
+    g = web.api_grade("t1", "pv-l3-01", "def swap_values(a, b):\n    return (b, a)")
+    assert "syntax_error" not in g and g["score"] == 1.0
+
+
+def test_syntax_error_retry_then_commit(web):
+    # 修正重交：grade 是纯判分不落库 -> 语法错误重交后 commit 只记录最终作答
+    web.api_grade("t1", "pv-l3-01", "def swap_values(a, b)\n    return (b, a)")  # 笔误
+    web.api_grade("t1", "pv-l3-01", "def swap_values(a, b):\n    return (b, a)")  # 修正
+    c = web.api_commit("t1", "", 0.8)
+    assert c["misc_id"] is None
+    db = Database(web.db_path)
+    try:
+        rows = db.load_responses("t1")
+        assert len(rows) == 1 and rows[0]["score"] == 1.0
+    finally:
+        db.close()
+
+
+def test_syntax_error_giveup_commits_zero(web):
+    # 放弃保底：语法错误放弃 -> 计 0 分提交
+    web.api_grade("t1", "pv-l3-01", "def swap_values(a, b)\n    return (b, a)")
+    web.api_commit("t1", "修不出来", 0.5)
+    db = Database(web.db_path)
+    try:
+        rows = db.load_responses("t1")
+        assert rows[0]["score"] == 0.0
+    finally:
+        db.close()

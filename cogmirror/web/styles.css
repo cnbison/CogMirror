@@ -147,3 +147,12 @@ section p { margin: 6px 0; }
   .settings { gap: 10px; }
   .card { padding: 16px; }
 }
+
+/* 语法错误修正横幅 */
+.syntax-err {
+  background: #fff5f5; border: 1px solid #f3c1c1; border-radius: 8px;
+  padding: 12px 14px; margin-top: 14px;
+}
+.syntax-err p { margin: 4px 0; }
+.syntax-err pre.case { background: #fff; margin: 6px 0; padding: 6px 10px;
+  border-radius: 6px; }
