@@ -60,10 +60,19 @@ async function showWelcome() {
       <label class="chk"><input id="setReview" type="checkbox"> 只练错题</label>
     </div>
     <div class="row">
-      <button class="primary" id="btnStart">开始答题</button>
+      ${init.quiz_in_progress ? `<button class="primary" id="btnResume">
+        继续答题（还剩 ${init.quiz_in_progress.remaining} 题）</button>` : ""}
+      <button class="${init.quiz_in_progress ? "" : "primary"}" id="btnStart">开始答题</button>
       ${init.is_new ? "" : `<button id="btnMap">只看认知地图</button>`}
     </div>
   </div>`;
+  const btnResume = document.getElementById("btnResume");
+  if (btnResume) btnResume.onclick = async () => {
+    const data = await api(`/api/quiz/resume?user=${encodeURIComponent(S.user)}`);
+    S.questions = data.questions;
+    S.idx = 0;
+    if (S.questions.length) renderQuestion();
+  };
   document.getElementById("btnStart").onclick = () => {
     const review = document.getElementById("setReview").checked;
     const n = review ? 0 : Number(document.getElementById("setN").value) || 10;

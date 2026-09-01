@@ -248,3 +248,39 @@ def test_http_smoke(web):
 
 def test_default_port_constant():
     assert DEFAULT_PORT == 8300
+
+
+# ── 断点续答（真机反馈：刷新后不应从头出题） ──────────────────────
+
+
+def test_quiz_resume_after_partial_answers(web):
+    # 3 题组答 1 题 -> init 报 in_progress；resume 返回剩余 2 题（从第 2 题起）
+    data = web.api_quiz("t1", 3, "", None, False)
+    q1, q2, q3 = data["questions"]
+    web.api_grade("t1", q1["problem_id"], "1")
+    web.api_commit("t1", "", 0.8)
+    init = web.api_init("t1")
+    assert init["quiz_in_progress"] == {"remaining": 2, "total": 3}
+    resumed = web.api_quiz_resume("t1")
+    assert [q["problem_id"] for q in resumed["questions"]] == [q2["problem_id"], q3["problem_id"]]
+    # 判分后未 commit 的题也算未答（刷新发生在判分出错/提交前）
+    web.api_grade("t1", q2["problem_id"], "1")
+    resumed = web.api_quiz_resume("t1")
+    assert [q["problem_id"] for q in resumed["questions"]] == [q2["problem_id"], q3["problem_id"]]
+
+
+def test_quiz_resume_cleared_after_finish(web):
+    _run_quiz(web, "t1", [("1", 0.8, "")])
+    assert web.api_finish("t1")  # 题组结束清进度
+    assert "quiz_in_progress" not in web.api_init("t1")
+    assert web.api_quiz_resume("t1") == {"questions": [], "count": 0}
+
+
+def test_quiz_new_group_overwrites_progress(web):
+    data = web.api_quiz("t1", 3, "", None, False)
+    q1 = data["questions"][0]
+    web.api_grade("t1", q1["problem_id"], "1")
+    web.api_commit("t1", "", 0.8)
+    # 主动开新组（覆盖进行中的进度，prev_state 以新组开始为准）
+    data2 = web.api_quiz("t1", 2, "python.loops", None, False)
+    assert web.api_init("t1")["quiz_in_progress"]["total"] == 2

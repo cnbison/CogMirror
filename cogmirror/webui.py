@@ -82,6 +82,10 @@ class UserSession:
         self.engine.l2.register_items_bulk(self.bank.mirt_items())
         self.pending: Optional[Dict[str, Any]] = None
         self.prev_state: Optional[BeliefState] = None
+        # 进行中的题组（服务端保存进度：浏览器刷新/关闭后可「继续答题」，
+        # 不再从头出题——真机反馈）。quiz_pos = 下一道未答题的下标
+        self.quiz_questions: List[Any] = []
+        self.quiz_pos: int = 0
         self._n_rows_before = len(db.load_responses(user_id))
         state = db.load_latest_state(user_id)
         self._state_existed = state is not None
@@ -122,6 +126,18 @@ class UserSession:
         # n <= 0 = 不限数量（错题重练模式前端传 0，重练全部错题）
         questions = selected[:n] if n > 0 else selected
         self.prev_state = copy.deepcopy(self.state) if questions else self.prev_state
+        self.quiz_questions = list(questions)
+        self.quiz_pos = 0
+        return self._strip_questions(questions)
+
+    def resume_questions(self) -> List[Dict[str, Any]]:
+        """进行中题组的剩余题（无进行中题组返回空）."""
+        if not self.quiz_questions or self.quiz_pos >= len(self.quiz_questions):
+            return []
+        return self._strip_questions(self.quiz_questions[self.quiz_pos:])
+
+    @staticmethod
+    def _strip_questions(questions) -> List[Dict[str, Any]]:
         # 题面剥离答案与讲解（判分在服务端，讲解答完才返回）
         return [
             {
@@ -200,6 +216,7 @@ class UserSession:
         line = _illusory_live_feedback(self.state, illusory_before)
         if line:
             live.append(line)
+        self.quiz_pos += 1  # 断点续答：已答一题（真机反馈，刷新后不再从头出题）
         return {"live_feedback": live, "misc_id": misc_id}
 
     # ── 组末：对账 + 地图 ─────────────────────────────────────────
@@ -208,6 +225,8 @@ class UserSession:
         # 先出地图（此时本组行仍在 session_rows 里，delta/反思句基于本组），
         # 再对账并推进窗口
         payload = self.map_payload()
+        self.quiz_questions = []
+        self.quiz_pos = 0
         rows = self.db.load_responses(self.user_id)
         self.tracker.reconcile(rows[self._n_rows_before:])
         # 对账窗口 = 一个题组（web 会话边界），对账过的行不再参与下次
@@ -361,6 +380,12 @@ class WebUI:
             out["overview"] = overview
             out["struggles"] = [_topic_label(x) for x in struggles[:3]]
             out["n_responses"] = len(s.engine.get_history(user_id))
+            remaining = len(s.quiz_questions) - s.quiz_pos
+            if remaining > 0:
+                out["quiz_in_progress"] = {
+                    "remaining": remaining,
+                    "total": len(s.quiz_questions),
+                }
             return out
 
     def api_quiz(self, user_id: str, n: int, topic: str,
@@ -368,6 +393,12 @@ class WebUI:
         with self._lock:
             s = self.session(user_id)
             questions = s.select_questions(n, topic, level, review)
+            return {"questions": questions, "count": len(questions)}
+
+    def api_quiz_resume(self, user_id: str) -> Dict[str, Any]:
+        with self._lock:
+            s = self.session(user_id)
+            questions = s.resume_questions()
             return {"questions": questions, "count": len(questions)}
 
     def api_grade(self, user_id: str, problem_id: str, answer: str) -> Dict[str, Any]:
@@ -453,6 +484,11 @@ def make_handler(webui: WebUI) -> type:
                 level = _parse_level(qs.get("level", [""])[0])
                 review = qs.get("review", [""])[0] in ("1", "true")
                 self._send_json(webui.api_quiz(user, n, topic, level, review))
+                return
+            if parsed.path == "/api/quiz/resume":
+                qs = parse_qs(parsed.query)
+                user = qs.get("user", [webui.default_user])[0]
+                self._send_json(webui.api_quiz_resume(user))
                 return
             if parsed.path == "/api/map":
                 qs = parse_qs(parsed.query)
