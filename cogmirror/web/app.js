@@ -78,7 +78,8 @@ async function showWelcome() {
     const n = review ? 0 : Number(document.getElementById("setN").value) || 10;
     const topic = document.getElementById("setTopic").value;
     const level = document.getElementById("setLevel").value;
-    const q = `?user=${encodeURIComponent(S.user)}&n=${n}&topic=${encodeURIComponent(topic)}&level=${encodeURIComponent(level)}${review ? "&review=1" : ""}`;
+    // fresh=1：新题优先，跳过已作答过的题（不够时已答题补尾）
+    const q = `?user=${encodeURIComponent(S.user)}&n=${n}&topic=${encodeURIComponent(topic)}&level=${encodeURIComponent(level)}${review ? "&review=1" : "&fresh=1"}`;
     startQuiz(q);
   };
   const btnMap = document.getElementById("btnMap");

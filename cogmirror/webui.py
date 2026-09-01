@@ -111,8 +111,14 @@ class UserSession:
     # ── 题组 ────────────────────────────────────────────────────────
 
     def select_questions(self, n: int, topic: str, level: Optional[BloomLevel],
-                         review: bool) -> List[Dict[str, Any]]:
-        """选题（镜像 run_session 的过滤顺序），并深拷贝快照 prev_state."""
+                         review: bool, skip_answered: bool = False) -> List[Dict[str, Any]]:
+        """选题并深拷贝快照 prev_state.
+
+        skip_answered=True（web「开始答题」）：新题优先--已作答过的题排到
+        组尾，只在剩余新题不足时才补位（真机反馈：每组都从题库第一道
+        出，已答过的题反复出现）。练习轮/错题重练不传该标志（重做是巩固
+        语义的一部分）。
+        """
         selected = self.bank.all_questions()
         problem_ids = None
         if review:
@@ -123,6 +129,11 @@ class UserSession:
             selected = [q for q in selected if q.topic == topic]
         if level is not None:
             selected = [q for q in selected if q.bloom_level == level]
+        if skip_answered and not review:
+            answered = {r["problem_id"] for r in self.db.load_responses(self.user_id)}
+            fresh = [q for q in selected if q.problem_id not in answered]
+            redo = [q for q in selected if q.problem_id in answered]
+            selected = fresh + redo
         # n <= 0 = 不限数量（错题重练模式前端传 0，重练全部错题）
         questions = selected[:n] if n > 0 else selected
         self.prev_state = copy.deepcopy(self.state) if questions else self.prev_state
@@ -380,8 +391,9 @@ class WebUI:
             out["overview"] = overview
             out["struggles"] = [_topic_label(x) for x in struggles[:3]]
             out["n_responses"] = len(s.engine.get_history(user_id))
+            # 零进度的组不显示「继续」（与「开始答题」等价，只会造成困惑）
             remaining = len(s.quiz_questions) - s.quiz_pos
-            if remaining > 0:
+            if remaining > 0 and s.quiz_pos > 0:
                 out["quiz_in_progress"] = {
                     "remaining": remaining,
                     "total": len(s.quiz_questions),
@@ -389,10 +401,11 @@ class WebUI:
             return out
 
     def api_quiz(self, user_id: str, n: int, topic: str,
-                 level: Optional[BloomLevel], review: bool) -> Dict[str, Any]:
+                 level: Optional[BloomLevel], review: bool,
+                 skip_answered: bool = False) -> Dict[str, Any]:
         with self._lock:
             s = self.session(user_id)
-            questions = s.select_questions(n, topic, level, review)
+            questions = s.select_questions(n, topic, level, review, skip_answered)
             return {"questions": questions, "count": len(questions)}
 
     def api_quiz_resume(self, user_id: str) -> Dict[str, Any]:
@@ -483,7 +496,8 @@ def make_handler(webui: WebUI) -> type:
                 topic = qs.get("topic", [""])[0]
                 level = _parse_level(qs.get("level", [""])[0])
                 review = qs.get("review", [""])[0] in ("1", "true")
-                self._send_json(webui.api_quiz(user, n, topic, level, review))
+                skip_answered = qs.get("fresh", [""])[0] in ("1", "true")
+                self._send_json(webui.api_quiz(user, n, topic, level, review, skip_answered))
                 return
             if parsed.path == "/api/quiz/resume":
                 qs = parse_qs(parsed.query)

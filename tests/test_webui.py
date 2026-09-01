@@ -281,6 +281,40 @@ def test_quiz_new_group_overwrites_progress(web):
     q1 = data["questions"][0]
     web.api_grade("t1", q1["problem_id"], "1")
     web.api_commit("t1", "", 0.8)
-    # 主动开新组（覆盖进行中的进度，prev_state 以新组开始为准）
+    # 主动开新组（覆盖进行中的进度，prev_state 以新组开始为准）；
+    # 新组先答 1 题后，续答进度应反映新组（2 题组 remaining=1）
     data2 = web.api_quiz("t1", 2, "python.loops", None, False)
-    assert web.api_init("t1")["quiz_in_progress"]["total"] == 2
+    web.api_grade("t1", data2["questions"][0]["problem_id"], "1")
+    web.api_commit("t1", "", 0.8)
+    assert web.api_init("t1")["quiz_in_progress"] == {"remaining": 1, "total": 2}
+
+
+# ── 新题优先（真机反馈：每组都从题库第一道出，已答题反复出现） ────
+
+
+def test_fresh_quiz_skips_answered(web):
+    # 已答 pv-l1-01 -> fresh 新组从 pv-l2-01 起
+    _run_quiz(web, "t1", [("1", 0.8, "")])
+    data = web.api_quiz("t1", 2, "", None, False, skip_answered=True)
+    assert [q["problem_id"] for q in data["questions"]] == ["pv-l2-01", "pv-l2-02"]
+
+
+def test_fresh_quiz_fills_with_answered_when_exhausted(web):
+    # 全部 51 题已答 -> 新题不够，已答题补位（题组不空）
+    answers = [("1", 0.8, "")] * 51
+    _run_quiz(web, "t1", answers)
+    data = web.api_quiz("t1", 3, "", None, False, skip_answered=True)
+    assert data["count"] == 3
+
+
+def test_practice_round_not_skip_answered(web):
+    # 练习轮（无 fresh 标志）：重做是巩固语义的一部分，仍从该筛选的首题出
+    _run_quiz(web, "t1", [("1", 0.8, "")])
+    data = web.api_quiz("t1", 3, "python.variables", None, False, skip_answered=False)
+    assert data["questions"][0]["problem_id"] == "pv-l1-01"
+
+
+def test_zero_progress_group_no_resume_button(web):
+    # 零进度的组（刚开未答）不显示「继续」——与开始答题等价，只会造成困惑
+    web.api_quiz("t1", 10, "", None, False)
+    assert "quiz_in_progress" not in web.api_init("t1")
